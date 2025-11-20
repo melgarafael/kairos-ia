@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/ui/cn";
-import { Send, Loader2, AlertCircle } from "lucide-react";
+import { Send, Loader2, AlertCircle, Paperclip, X } from "lucide-react";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { MarkdownRenderer } from "./markdown-renderer";
 
@@ -36,10 +36,12 @@ export function ChatPanel({ sessionId, onSessionCreated }: ChatPanelProps) {
     }
   ]);
   const [input, setInput] = useState("");
+  const [attachment, setAttachment] = useState<{ name: string; type: string; content: string } | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Load messages when sessionId changes
   useEffect(() => {
@@ -95,24 +97,31 @@ export function ChatPanel({ sessionId, onSessionCreated }: ChatPanelProps) {
   }, []);
 
   async function handleSend() {
-    if (!input.trim() || loading) return;
+    if ((!input.trim() && !attachment) || loading) return;
     setError(null);
     const userMessage: Message = {
       id: generateId(),
       role: "user",
-      content: input.trim(),
+      content: (input.trim() ? input.trim() + "\n\n" : "") + (attachment ? `[Anexo: ${attachment.name}]` : ""),
       timestamp: Date.now()
     };
     const optimisticMessages = [...messages, userMessage];
     setMessages(optimisticMessages);
     setInput("");
+    const currentAttachment = attachment;
+    setAttachment(null);
+    if (fileInputRef.current) fileInputRef.current.value = "";
     setLoading(true);
 
     try {
       const res = await fetch("/api/ai/command", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: optimisticMessages, sessionId })
+        body: JSON.stringify({ 
+          messages: optimisticMessages, 
+          sessionId,
+          attachment: currentAttachment
+        })
       });
       if (!res.ok) {
         throw new Error((await res.json()).error ?? "Falha na comunicação com a IA.");
@@ -146,6 +155,27 @@ export function ChatPanel({ sessionId, onSessionCreated }: ChatPanelProps) {
       e.preventDefault();
       handleSend();
     }
+  };
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const content = e.target?.result as string;
+      setAttachment({
+        name: file.name,
+        type: file.type,
+        content
+      });
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const removeAttachment = () => {
+    setAttachment(null);
+    if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
   const isEmptyState = messages.length === 0 || (messages.length === 1 && messages[0].content === starterMessage);
@@ -232,6 +262,21 @@ export function ChatPanel({ sessionId, onSessionCreated }: ChatPanelProps) {
               </motion.div>
             )}
           </AnimatePresence>
+
+          {attachment && (
+            <div className="flex items-center gap-2 px-3 py-2 bg-white/5 border border-white/10 rounded-lg w-fit">
+              <Paperclip size={14} className="text-muted-foreground" />
+              <span className="text-sm text-foreground max-w-[200px] truncate" title={attachment.name}>
+                {attachment.name}
+              </span>
+              <button
+                onClick={removeAttachment}
+                className="ml-2 p-0.5 hover:bg-white/10 rounded-full text-muted-foreground hover:text-foreground transition-colors"
+              >
+                <X size={14} />
+              </button>
+            </div>
+          )}
           
           <div className="flex items-end gap-3">
             <div className="flex-1 relative">
@@ -252,9 +297,31 @@ export function ChatPanel({ sessionId, onSessionCreated }: ChatPanelProps) {
                 {input.length > 0 && `${input.length} caracteres`}
               </div>
             </div>
+            <input
+              type="file"
+              ref={fileInputRef}
+              onChange={handleFileSelect}
+              className="hidden"
+              accept=".csv,image/*,audio/*"
+            />
+            <Button
+              onClick={() => fileInputRef.current?.click()}
+              disabled={loading || !!attachment}
+              variant="outline"
+              size="icon"
+              className={cn(
+                "h-[52px] w-[52px] min-w-[52px]",
+                "bg-background/50 border-white/10",
+                "hover:bg-white/5",
+                "transition-all duration-200"
+              )}
+              title="Anexar arquivo (CSV, Imagem, Áudio)"
+            >
+              <Paperclip size={20} className="text-muted-foreground" />
+            </Button>
             <Button
               onClick={handleSend}
-              disabled={loading || !input.trim()}
+              disabled={loading || (!input.trim() && !attachment)}
               size="lg"
               className={cn(
                 "h-[52px] px-6 min-w-[52px]",

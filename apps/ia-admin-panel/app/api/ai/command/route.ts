@@ -42,9 +42,10 @@ export async function POST(req: Request) {
     }
   }
 
-  const body = (await req.json()) as { messages: UiMessage[]; sessionId?: string };
+  const body = (await req.json()) as { messages: UiMessage[]; sessionId?: string; attachment?: any };
   const messages = body?.messages ?? [];
   let sessionId = body.sessionId;
+  const attachment = body.attachment;
 
   // Prepare database interaction
   const supabase = await createSupabaseServerClient();
@@ -92,7 +93,9 @@ export async function POST(req: Request) {
   try {
     const result = await callN8nWebhook({
       messages,
-      userId: session.user.id
+      userId: session.user.id,
+      attachment,
+      sessionId
     });
 
     // Save assistant response
@@ -131,10 +134,14 @@ export async function POST(req: Request) {
 
 async function callN8nWebhook({
   messages,
-  userId
+  userId,
+  attachment,
+  sessionId
 }: {
   messages: UiMessage[];
   userId: string;
+  attachment?: any;
+  sessionId?: string;
 }) {
   // Pegar apenas a última mensagem do usuário (a mais recente)
   const lastUserMessage = [...messages].reverse().find(m => m.role === "user");
@@ -142,6 +149,14 @@ async function callN8nWebhook({
 
   if (!userMessage) {
     throw new Error("Nenhuma mensagem do usuário encontrada.");
+  }
+
+  // Limpar o base64 do anexo se existir
+  if (attachment && attachment.content && typeof attachment.content === "string") {
+    // Remove o prefixo data:image/png;base64, ou data:text/csv;base64, etc
+    // Para que o n8n receba apenas o raw base64
+    const base64Data = attachment.content.replace(/^data:([A-Za-z-+/]+);base64,/, "");
+    attachment.content = base64Data;
   }
 
   console.log(`[ai-command] Calling n8n webhook with message:`, userMessage);
@@ -154,7 +169,9 @@ async function callN8nWebhook({
     body: JSON.stringify({
       message: userMessage,
       userId,
-      conversationHistory: messages.slice(-10) // Enviar últimas 10 mensagens para contexto
+      sessionId,
+      conversationHistory: messages.slice(-10), // Enviar últimas 10 mensagens para contexto
+      attachment
     })
   });
 
