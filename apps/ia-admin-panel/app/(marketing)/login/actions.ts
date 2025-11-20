@@ -26,6 +26,8 @@ export async function loginAction(
   const { data, error } = await supabase.auth.signInWithPassword(parseResult.data);
 
   if (error || !data.session) {
+    console.error("[Login Error]", error); // Log para o servidor
+    console.log("Supabase URL:", process.env.NEXT_PUBLIC_SUPABASE_URL?.slice(0, 10)); // Debug da URL
     return {
       error:
         error?.message ??
