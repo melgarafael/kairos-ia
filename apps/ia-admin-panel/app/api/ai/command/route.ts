@@ -24,6 +24,9 @@ const ratelimit =
 
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
+
+export const maxDuration = 180; // 3 minutes
+
 export async function POST(req: Request) {
   let session;
   try {
@@ -161,88 +164,105 @@ async function callN8nWebhook({
 
   console.log(`[ai-command] Calling n8n webhook with message:`, userMessage);
 
-  const response = await fetch(N8N_WEBHOOK_URL, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({
-      message: userMessage,
-      userId,
-      sessionId,
-      conversationHistory: messages.slice(-10), // Enviar últimas 10 mensagens para contexto
-      attachment
-    })
-  });
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 180000); // 3 minutes
 
-  if (!response.ok) {
-    const errorText = await response.text();
-    console.error(`[ai-command] n8n webhook error:`, response.status, errorText);
-    throw new Error(`Erro ao chamar webhook n8n: ${response.status} ${errorText}`);
-  }
+  try {
+    const response = await fetch(N8N_WEBHOOK_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        message: userMessage,
+        userId,
+        sessionId,
+        conversationHistory: messages.slice(-10), // Enviar últimas 10 mensagens para contexto
+        attachment
+      }),
+      signal: controller.signal
+    });
 
-  const data = await response.json();
-  console.log(`[ai-command] n8n webhook response:`, JSON.stringify(data, null, 2).substring(0, 500));
-
-  // Processar resposta do n8n
-  // O n8n pode retornar em diferentes formatos, vamos tentar os mais comuns
-  let reply = "";
-  let toolLogs: Array<{
-    tool: string;
-    args: Record<string, any>;
-    output: string;
-  }> = [];
-
-  // Função auxiliar para extrair texto de uma string que pode ser JSON
-  function extractText(value: any): string {
-    if (typeof value === "string") {
-      // Se for uma string que parece JSON, tenta fazer parse
-      const trimmed = value.trim();
-      if (trimmed.startsWith("{") && trimmed.endsWith("}")) {
-        try {
-          const parsed = JSON.parse(trimmed);
-          // Se parseou, tenta extrair campos comuns
-          if (typeof parsed === "object" && parsed !== null) {
-            return parsed.output || parsed.reply || parsed.response || parsed.message || parsed.text || value;
-          }
-        } catch {
-          // Se não conseguiu fazer parse, retorna a string original
-          return value;
-        }
+    if (!response.ok) {
+      if (response.status === 524) {
+        console.error(`[ai-command] n8n webhook timeout (524)`);
+        throw new Error("O agente demorou muito para responder (Timeout). Tente simplificar a solicitação ou tente novamente mais tarde.");
       }
-      return value;
+      const errorText = await response.text();
+      console.error(`[ai-command] n8n webhook error:`, response.status, errorText);
+      throw new Error(`Erro ao chamar webhook n8n: ${response.status}`);
     }
-    return String(value);
-  }
 
-  // Se a resposta for uma string simples
-  if (typeof data === "string") {
-    reply = extractText(data);
-  }
-  // Se for um objeto com 'reply', 'response', 'message', 'text' ou 'output'
-  else if (typeof data === "object" && data !== null) {
-    const possibleReply = data.output || data.reply || data.response || data.message || data.text;
-    
-    if (possibleReply) {
-      reply = extractText(possibleReply);
-    } else {
-      // Se não encontrou nenhum campo conhecido, tenta stringify mas com fallback melhor
-      reply = JSON.stringify(data);
-    }
-    
-    // Se houver toolLogs na resposta
-    if (data.toolLogs && Array.isArray(data.toolLogs)) {
-      toolLogs = data.toolLogs;
-    }
-  }
-  // Fallback
-  else {
-    reply = extractText(String(data));
-  }
+    const data = await response.json();
+    console.log(`[ai-command] n8n webhook response:`, JSON.stringify(data, null, 2).substring(0, 500));
 
-  return {
-    reply: reply.trim() || "Não recebi uma resposta válida do agente.",
-    toolLogs
-  };
+    // Processar resposta do n8n
+    // O n8n pode retornar em diferentes formatos, vamos tentar os mais comuns
+    let reply = "";
+    let toolLogs: Array<{
+      tool: string;
+      args: Record<string, any>;
+      output: string;
+    }> = [];
+
+    // Função auxiliar para extrair texto de uma string que pode ser JSON
+    function extractText(value: any): string {
+      if (typeof value === "string") {
+        // Se for uma string que parece JSON, tenta fazer parse
+        const trimmed = value.trim();
+        if (trimmed.startsWith("{") && trimmed.endsWith("}")) {
+          try {
+            const parsed = JSON.parse(trimmed);
+            // Se parseou, tenta extrair campos comuns
+            if (typeof parsed === "object" && parsed !== null) {
+              return parsed.output || parsed.reply || parsed.response || parsed.message || parsed.text || value;
+            }
+          } catch {
+            // Se não conseguiu fazer parse, retorna a string original
+            return value;
+          }
+        }
+        return value;
+      }
+      return String(value);
+    }
+
+    // Se a resposta for uma string simples
+    if (typeof data === "string") {
+      reply = extractText(data);
+    }
+    // Se for um objeto com 'reply', 'response', 'message', 'text' ou 'output'
+    else if (typeof data === "object" && data !== null) {
+      const possibleReply = data.output || data.reply || data.response || data.message || data.text;
+      
+      if (possibleReply) {
+        reply = extractText(possibleReply);
+      } else {
+        // Se não encontrou nenhum campo conhecido, tenta stringify mas com fallback melhor
+        reply = JSON.stringify(data);
+      }
+      
+      // Se houver toolLogs na resposta
+      if (data.toolLogs && Array.isArray(data.toolLogs)) {
+        toolLogs = data.toolLogs;
+      }
+    }
+    // Fallback
+    else {
+      reply = extractText(String(data));
+    }
+
+    return {
+      reply: reply.trim() || "Não recebi uma resposta válida do agente.",
+      toolLogs
+    };
+  } catch (error: any) {
+    if (error.name === "AbortError") {
+      throw new Error("O agente demorou mais de 3 minutos para responder.");
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeoutId);
+  }
 }
 
