@@ -1,0 +1,306 @@
+# Manual Jobs 2025 — Guia Técnico (Design, UX, Stack & IA)
+
+> **Princípio orientador (Jobs-style):** *“Escolha com gosto. Corte o resto. Entregue magia do primeiro toque ao último pixel.”*
+
+Este guia traduz a filosofia Jobsiana para escolhas técnicas **atuais**: bibliotecas, estruturas visuais, efeitos, camadas e padrões operacionais para apps web com IA. Use como **porta de qualidade** antes de iniciar/aceitar qualquer implementação.
+
+---
+
+## 1) Stack base de produto
+
+### 1.1 Front‑end
+
+* **Framework:** React 19.x + **Next.js (App Router)**
+
+  * Server Components por padrão; Client Components somente para interações.
+  * **Streaming** e **caching** controlado por rota/segmento.
+* **Linguagem:** **TypeScript** (strict: true, noImplicitAny, exactOptionalPropertyTypes)
+* **Estilo:** **Tailwind CSS** com **Design Tokens** via CSS variables (`:root` e temas).
+* **Componentes de baixo nível:** **Radix Primitives** (acessibilidade nativa, foco/teclas/ARIA bem resolvidos)
+* **Kit de UI opinado:** **shadcn/ui** (componentes como código, sobre Radix, customizáveis)
+* **Ícones:** **Lucide** (coeso, leve, traço consistente)
+* **Animações:** **Motion (ex‑Framer Motion)** — microinterações, gestos e transições significativas
+* **3D/FX:** **React Three Fiber** (quando 3D agregar valor real — ver §5.4)
+* **Tabelas/Datagrid:** **TanStack Table** (headless, performance, colunas virtuais)
+* **Data‑fetching & Server State:** **TanStack Query** (cache, invalidation, retries)
+* **Validação & contratos:** **Zod** (schemas tipados, parse seguro em bordas)
+* **Formulários:** **react‑hook‑form** + resolvers Zod
+* **i18n:** **next‑intl** ou **i18next** (mensagens com ids estáveis)
+
+### 1.2 Back‑end e dados
+
+* **BaaS/DB:** **Supabase (Postgres)** — auth, storage, **Realtime**, **pgvector** para RAG
+* **APIs:** Route Handlers/Server Actions (Next) + **Edge Functions** (Supabase) para tarefas sensíveis/cron
+* **Busca semântica:** **pgvector** (índices IVF/ HNSW conforme caso)
+* **Filas & Jobs:** **pgmq** / **QStash** / cron (pg_cron) conforme SLA
+* **Webhooks & automações:** **n8n** (orquestrações externas) com assinatura HMAC
+
+### 1.3 Camada de IA
+
+* **Client SDK:** **Vercel AI SDK** (streaming, tool‑calling, providers)
+* **Provider:** OpenAI **Responses API** (agentes/tool‑use, web/file/computer use quando fizer sentido)
+* **RAG:** Supabase Vector + pipelines de **embeddings** automáticos (Edge Fn + triggers)
+* **Guardrails:** filtros de PII, limites de contexto, regras de tool‑use, *rate limiting* e auditoria
+
+---
+
+## 2) Sistema de Design (Jobs → “gosto + coerência”)
+
+### 2.1 Tokens
+
+* **Cores (HSL):** `--bg`, `--surface`, `--primary`, `--secondary`, `--muted`, `--success`, `--warning`, `--danger` + escalas (`-50 .. -900`).
+* **Tipografia:** `{--font-sans, --font-mono}` com escala modular (1.125) e **4 pesos canônicos** (300/400/600/700).
+* **Raios:** `--radius-sm/md/lg/2xl` — padrão **rounded-2xl** para cartões principais.
+* **Sombra:** `--shadow-1/2/3` (elevações discretas; sem exageros).
+* **Espaçamento:** passos Tailwind (4, 6, 8, 12, 16, 24, 32) — limite de 7 tamanhos recorrentes.
+
+### 2.2 Componentes fundamentais (Radix + shadcn)
+
+* **Button** (3 variantes: primary/secondary/ghost; tamanhos sm/md/lg).
+* **Input** (estados: default/hover/focus/invalid/disabled; *help text* opcional).
+* **Select/Combobox** (acessível, setas/ESC, *typeahead*; tamanho variável ao conteúdo, nunca tela cheia).
+* **Dialog/Sheet** (bloqueio de foco, *escape hatch* claro).
+* **Toast/Inline Feedback** (não intrusivo; 3s; acessível).
+* **DataTable** (virtualização, colunas reordenáveis, *empty state* didático).
+
+### 2.3 Tipografia & tom de voz
+
+* **Headlines curtas** (<= 6 palavras). Subheads com verbo e número.
+* Microcópia humana, sem “configurês”. **Verbos > substantivos**.
+
+---
+
+## 3) Arquitetura de UX (do primeiro toque ao hábito)
+
+### 3.1 Fluxo base (Jobs TBP — *Time‑to‑Brilho*)
+
+1. **Primeiros 10s:** mensagem única + CTA primário único.
+2. **Primeiras 90s:** caminho guiado à primeira vitória (vídeo/gif curto ou *interactive demo*).
+3. **Após sucesso:** próximo passo automático (ex.: “agende sua primeira reunião”).
+
+### 3.2 Estados obrigatórios
+
+* **Vazio:** ilustração leve + 1 frase de valor + CTA + dados de exemplo.
+* **Erro:** linguagem humana + ação de correção + fallback.
+* **Carregamento:** esqueleto + progresso perceptível; evite *spinners* longos.
+* **Sucesso:** reforço de valor + *deep‑link* para continuidade.
+
+### 3.3 Acessibilidade
+
+* Alvos 44px, contraste AA+, focos visíveis, suporte a teclado completo.
+* Padrões ARIA apenas quando **HTML nativo** não cobre o caso.
+
+---
+
+## 4) Camadas & efeitos visuais (comedidos, significativos)
+
+### 4.1 Camadas
+
+* **Plano de fundo**: textura sutil (ruído 1–2%) ou gradiente leve.
+* **Superfícies**: cartões com **glass leve** (blur 6–12px, opacidade 80–92%).
+* **Elementos**: foco por cor/contraste, nunca por bordas gritantes.
+
+### 4.2 Motion (padrões)
+
+* **Duração:** 120–220ms (entradas/saídas), 300–450ms para grandes transições.
+* **Easing:** `easeOutQuad` (entradas), `easeInOutCubic` (transições), sem *bounces*.
+* **Stagger:** 30–60ms em listas curtas.
+* **Redução de movimento:** respeitar `prefers-reduced-motion` (cair para *fade*).
+
+### 4.3 Microinterações que importam
+
+* **Drag‑and‑drop** com *ghost* do card + *drop target* realçado.
+* **Feedback imediato**: label muda para “Salvo ✓” com **otimismo controlado**.
+* **Hover útil**: *tooltips* que ensinam (<= 1 frase).
+
+### 4.4 3D/Parallax (usar com propósito)
+
+* Somente quando comunicar **estrutura/estado** que 2D não comunica.
+* **R3F** com controle de FPS; *fallback* estático em devices fracos.
+
+---
+
+## 5) IA na experiência (RAG opinado)
+
+### 5.1 Orquestração
+
+* **Vercel AI SDK** para *stream* + tool calling; wrappers de provedores.
+* **OpenAI Responses API** para agentes com ferramentas (web/file/computer) quando necessário.
+
+### 5.2 Dados & contexto
+
+* **RAG** sobre **Supabase Vector (pgvector)**; chunking semântico; *metadata filters*.
+* **Embeddings automáticos**: triggers + fila + Edge Function; *backfill* noturno.
+* **Privacidade:** retenção mínima, *redaction* de PII, logs com *reasoning summary* apenas.
+
+### 5.3 UX da IA
+
+* **Prompt visível** quando ensina; oculto quando deve “apenas funcionar”.
+* **Controles de confiança**: mostrar fontes, datas e *confidence*.
+* **Fail‑soft**: respostas curtas + ação manual sugerida.
+
+---
+
+## 6) Performance & qualidade (porta de saída do sprint)
+
+* **Orçamento:** LCP ≤ 2.5s (4G), TTI ≤ 3.5s, JS ≤ 170KB inicial.
+* **Render:** priorizar Server Components; client apenas quando preciso.
+* **Prefetch inteligente** (on‑hover) de rotas e dados quentes.
+* **Imagens**: `next/image` com *responsive sizes*.
+* **Testes:**
+
+  * **Playwright** (E2E crítico),
+  * **Vitest** (unidade),
+  * **Lighthouse** (a11y/perf/SEO) em CI.
+
+---
+
+## 7) Observabilidade & controle
+
+* **Analytics de produto:** PostHog (eventos, funnels, *feature flags*, *session replay*).
+* **Experimentos:** flags + A/B por segmento (ex.: novos *onboardings*).
+* **Logs & métricas:** capturar erros de UI/IA com correlação de sessão.
+
+---
+
+## 8) Segurança & privacidade
+
+* **Auth:** Supabase Auth (ou OIDC) com sessões *httpOnly*; *RBAC* por organização.
+* **RLS:** políticas por *tenant*; todas as queries amarradas ao `org_id`.
+* **Segredos:** jamais no cliente; usar Edge Functions e KV cifrado.
+* **Auditoria:** quem pediu, com qual contexto, qual ferramenta a IA usou.
+
+---
+
+## 9) Blueprints de interfaces (opinionados)
+
+### 9.1 Kanban (processos de automação)
+
+* **Cards**: título (1 linha), status, 2 metadados chave, avatar responsável, ícone de prioridade.
+* **Interações**: DnD com *snap*; edição inline; *bulk actions* via *toolbar*.
+* **Performance**: virtualização; otimista com *rollback*; bordas claras para conflitos.
+
+### 9.2 Agendamentos
+
+* **Promessa:** “De link a confirmação em **30s**”.
+* **Defaults por persona**; *smart slots*; confirmação com *magic link*.
+* **Falhas**: *fallback* manual (WhatsApp/e‑mail) + rastreio.
+
+### 9.3 IA Comercial (assistida)
+
+* **CTA** sempre para próximo passo monetizável (proposta, reunião, pagamento).
+* **Transparência**: mostrar dados usados (CRM) e como foram combinados.
+
+---
+
+## 10) Playbook de revisão (estilo Jobs)
+
+1. **Corte:** quais 3 elementos podem sair sem perda de valor?
+2. **Primeiros 10s:** o que a pessoa sente? Qual verbo descreve?
+3. **Estados:** vazio/erro/sucesso estão tão bons quanto o “normal”?
+4. **Demo de 90s:** funciona sem narrador?
+5. **One more thing:** qual detalhe invisível arranca um sorriso?
+
+---
+
+## 11) Pacote de dependências (baseline)
+
+```json
+{
+  "dependencies": {
+    "next": "^15.x",
+    "react": "^19.x",
+    "react-dom": "^19.x",
+    "@tanstack/react-query": "^5.x",
+    "@tanstack/react-table": "^8.x",
+    "zod": "^3.x",
+    "react-hook-form": "^7.x",
+    "tailwindcss": "^3.x",
+    "lucide-react": "^0.x",
+    "@radix-ui/react-*": "^1.x",
+    "motion": "^11.x",
+    "@react-three/fiber": "^9.x",
+    "ai": "^3.x",
+    "@vercel/kv": "^1.x"
+  }
+}
+```
+
+> **Obs.:** fixe versões por release para reprodutibilidade. Atualizações de lib passam por *feature flag* e *canary*.
+
+---
+
+## 12) Estrutura de pastas (App Router)
+
+```
+app/
+  (marketing)/
+  (app)/
+    dashboard/
+    crm/
+    kanban/
+    scheduling/
+    api/
+lib/
+  ui/ (shadcn + wrappers)
+  hooks/
+  server/
+  validators/ (Zod)
+  ai/ (providers, tools, guards)
+styles/
+  tokens.css
+```
+
+---
+
+## 13) Snippets canônicos
+
+### 13.1 Motion – transição padrão
+
+```tsx
+<motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }} />
+```
+
+### 13.2 Query – mutação otimista
+
+```ts
+const mutation = useMutation({
+  mutationFn: updateCard,
+  onMutate: async (payload) => {
+    await queryClient.cancelQueries({ queryKey: ["cards"] });
+    const prev = queryClient.getQueryData(["cards"]);
+    queryClient.setQueryData(["cards"], (old) => optimistic(old, payload));
+    return { prev };
+  },
+  onError: (_e, _p, ctx) => ctx?.prev && queryClient.setQueryData(["cards"], ctx.prev),
+  onSettled: () => queryClient.invalidateQueries({ queryKey: ["cards"] }),
+});
+```
+
+### 13.3 Zod – contrato de borda
+
+```ts
+const CreateMeeting = z.object({
+  title: z.string().min(1),
+  when: z.string().datetime(),
+  attendee: z.string().email(),
+});
+```
+
+---
+
+## 14) Critérios de aceite (*Definition of Done*)
+
+* [ ] Primeiros **10s** entregam promessa clara e CTA único
+* [ ] Fluxo principal **≤ 3 cliques**
+* [ ] A11y AA+ (focos visíveis, contraste, teclado)
+* [ ] LCP/TTI dentro do orçamento
+* [ ] Estados vazio/erro/sucesso prontos e testados
+* [ ] Telemetria (eventos/flags) configurada
+* [ ] Demo 90s gravada
+
+---
+
+## 15) Epílogo Jobsiano
+
+> *“Design é como funciona. A coragem é dizer não. A magia nasce do detalhe invisível.”*

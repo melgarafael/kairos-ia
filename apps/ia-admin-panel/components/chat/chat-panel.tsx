@@ -1,0 +1,282 @@
+"use client";
+
+import { useState, useRef, useEffect } from "react";
+import { motion, AnimatePresence } from "framer-motion";
+import { Textarea } from "@/components/ui/textarea";
+import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/ui/cn";
+import { Send, Loader2, AlertCircle } from "lucide-react";
+import { createSupabaseBrowserClient } from "@/lib/supabase/client";
+import { MarkdownRenderer } from "./markdown-renderer";
+
+type Message = {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+  timestamp: number;
+};
+
+const starterMessage = "O que gostaria de fazer agora?";
+
+interface ChatPanelProps {
+  sessionId: string | null;
+  onSessionCreated: (id: string) => void;
+}
+
+export function ChatPanel({ sessionId, onSessionCreated }: ChatPanelProps) {
+  const generateId = () => Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+  const supabase = createSupabaseBrowserClient();
+
+  const [messages, setMessages] = useState<Message[]>([
+    { 
+      id: generateId(), 
+      role: "assistant", 
+      content: starterMessage,
+      timestamp: Date.now()
+    }
+  ]);
+  const [input, setInput] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // Load messages when sessionId changes
+  useEffect(() => {
+    async function loadSession() {
+      if (!sessionId) {
+        setMessages([{ 
+          id: generateId(), 
+          role: "assistant", 
+          content: starterMessage,
+          timestamp: Date.now()
+        }]);
+        return;
+      }
+
+      setLoading(true);
+      const { data, error } = await supabase
+        .from("admin_chat_messages")
+        .select("*")
+        .eq("session_id", sessionId)
+        .order("created_at", { ascending: true });
+
+      if (data && !error) {
+        if (data.length === 0) {
+           setMessages([{ 
+            id: generateId(), 
+            role: "assistant", 
+            content: starterMessage,
+            timestamp: Date.now()
+          }]);
+        } else {
+          setMessages(data.map(m => ({
+            id: m.id,
+            role: m.role as "user" | "assistant",
+            content: m.content,
+            timestamp: new Date(m.created_at).getTime()
+          })));
+        }
+      }
+      setLoading(false);
+    }
+
+    loadSession();
+  }, [sessionId]);
+
+  // Auto-scroll to bottom on new messages
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages]);
+
+  // Auto-focus textarea
+  useEffect(() => {
+    textareaRef.current?.focus();
+  }, []);
+
+  async function handleSend() {
+    if (!input.trim() || loading) return;
+    setError(null);
+    const userMessage: Message = {
+      id: generateId(),
+      role: "user",
+      content: input.trim(),
+      timestamp: Date.now()
+    };
+    const optimisticMessages = [...messages, userMessage];
+    setMessages(optimisticMessages);
+    setInput("");
+    setLoading(true);
+
+    try {
+      const res = await fetch("/api/ai/command", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ messages: optimisticMessages, sessionId })
+      });
+      if (!res.ok) {
+        throw new Error((await res.json()).error ?? "Falha na comunicação com a IA.");
+      }
+      const data = (await res.json()) as { reply: string, sessionId: string };
+      
+      // If new session was created, notify parent
+      if (!sessionId && data.sessionId) {
+        onSessionCreated(data.sessionId);
+      }
+
+      setMessages((prev) => [
+        ...prev,
+        { 
+          id: generateId(), 
+          role: "assistant", 
+          content: data.reply,
+          timestamp: Date.now()
+        }
+      ]);
+    } catch (err: any) {
+      setError(err?.message ?? "Erro desconhecido");
+    } finally {
+      setLoading(false);
+      textareaRef.current?.focus();
+    }
+  }
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      handleSend();
+    }
+  };
+
+  const isEmptyState = messages.length === 0 || (messages.length === 1 && messages[0].content === starterMessage);
+
+  return (
+    <div>
+      {/* Main Chat - Hero Content */}
+      <section className="glass-panel rounded-2xl border border-white/5 flex flex-col h-[calc(100vh-12rem)] overflow-hidden">
+        {/* Messages Area - Deferência ao conteúdo */}
+        <div className={cn(
+          "flex-1 overflow-y-auto px-6 py-6 space-y-4",
+          isEmptyState && "flex flex-col justify-center items-center"
+        )}>
+          <AnimatePresence initial={false}>
+            {isEmptyState ? (
+              <motion.h2
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.4, ease: "easeOut" }}
+                className="text-2xl md:text-3xl font-medium text-foreground/80 text-center mb-8"
+              >
+                {starterMessage}
+              </motion.h2>
+            ) : (
+              messages.filter(m => m.content !== starterMessage).map((message) => (
+                <motion.div
+                  key={message.id}
+                  initial={{ opacity: 0, y: 12 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.2, ease: [0.4, 0, 0.2, 1] }}
+                  className={cn(
+                    "flex",
+                    message.role === "user" ? "justify-end" : "justify-start"
+                  )}
+                >
+                  <div
+                    className={cn(
+                      "max-w-[75%] rounded-2xl px-5 py-3.5",
+                      "transition-all duration-200",
+                      message.role === "assistant"
+                        ? "bg-white/5 border border-white/10"
+                        : "bg-primary text-primary-foreground shadow-lg shadow-primary/20"
+                    )}
+                  >
+                    <MarkdownRenderer
+                      content={message.content}
+                      isUserMessage={message.role === "user"}
+                      className="font-[450]" // SF Display weight
+                    />
+                  </div>
+                </motion.div>
+              ))
+            )}
+          </AnimatePresence>
+          
+          {/* Loading indicator */}
+          {!isEmptyState && loading && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              className="flex justify-start"
+            >
+              <div className="bg-white/5 border border-white/10 rounded-2xl px-5 py-3.5 flex items-center gap-3">
+                <Loader2 size={16} className="animate-spin text-white/50" />
+                <span className="text-[15px] text-foreground/70">Processando...</span>
+              </div>
+            </motion.div>
+          )}
+          <div ref={messagesEndRef} />
+        </div>
+
+        {/* Input Area - Hero Action */}
+        <div className="border-t border-white/5 p-6 space-y-3 bg-card/50">
+          <AnimatePresence>
+            {error && (
+              <motion.div
+                initial={{ opacity: 0, y: -8 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -8 }}
+                className="flex items-center gap-2 rounded-lg bg-destructive/10 border border-destructive/20 px-4 py-2.5"
+              >
+                <AlertCircle size={16} className="text-destructive flex-shrink-0" />
+                <p className="text-sm text-destructive font-medium">{error}</p>
+              </motion.div>
+            )}
+          </AnimatePresence>
+          
+          <div className="flex items-end gap-3">
+            <div className="flex-1 relative">
+              <Textarea
+                ref={textareaRef}
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={handleKeyDown}
+                placeholder="Digite seu comando..."
+                className={cn(
+                  "min-h-[52px] max-h-[200px] resize-none",
+                  "text-[15px] leading-relaxed",
+                  "pr-12"
+                )}
+                disabled={loading}
+              />
+              <div className="absolute bottom-3 right-3 text-xs text-muted-foreground/50">
+                {input.length > 0 && `${input.length} caracteres`}
+              </div>
+            </div>
+            <Button
+              onClick={handleSend}
+              disabled={loading || !input.trim()}
+              size="lg"
+              className={cn(
+                "h-[52px] px-6 min-w-[52px]",
+                "bg-primary text-primary-foreground",
+                "hover:bg-primary/90 shadow-lg shadow-primary/20",
+                "transition-all duration-200",
+                "disabled:opacity-50 disabled:cursor-not-allowed"
+              )}
+            >
+              {loading ? (
+                <Loader2 size={20} className="animate-spin" />
+              ) : (
+                <Send size={20} />
+              )}
+            </Button>
+          </div>
+          <p className="text-xs text-muted-foreground/60 text-center">
+            Pressione <kbd className="px-1.5 py-0.5 rounded bg-white/5 border border-white/10">Enter</kbd> para enviar, <kbd className="px-1.5 py-0.5 rounded bg-white/5 border border-white/10">Shift+Enter</kbd> para nova linha
+          </p>
+        </div>
+      </section>
+    </div>
+  );
+}
+

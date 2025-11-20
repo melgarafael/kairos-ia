@@ -1,0 +1,96 @@
+openapi: 3.1.0
+info:
+  title: Tenant Gateway API
+  version: 0.1.0
+  description: >
+    BFF responsável por isolar o frontend do Supabase master/client.
+    Todos os endpoints exigem autenticação do usuário via token emitido pelo Supabase master.
+servers:
+  - url: http://localhost:4000
+    description: Desenvolvimento local
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+paths:
+  /healthz:
+    get:
+      summary: Verifica saúde do gateway
+      responses:
+        '200':
+          description: Gateway operacional
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+                  timestamp:
+                    type: string
+                    format: date-time
+  /api/v2/organizations:
+    get:
+      summary: Lista organizações visíveis para o usuário autenticado
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Lista de organizações
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Organization'
+        '401':
+          description: Usuário não autenticado
+  /api/v2/organizations/{orgId}:
+    get:
+      summary: Detalhes de uma organização específica
+      parameters:
+        - name: orgId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Organização encontrada
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Organization'
+        '404':
+          description: Organização não encontrada
+components:
+  schemas:
+    Organization:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        slug:
+          type: string
+          nullable: true
+        client_org_id:
+          type: string
+          nullable: true
+        status:
+          type: string
+          enum: [active, inactive]
+

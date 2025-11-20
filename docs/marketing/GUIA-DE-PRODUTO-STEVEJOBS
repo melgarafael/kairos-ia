@@ -1,0 +1,223 @@
+# Manual Steve Jobs — Guia de Produto, Design e Experiência
+
+> **Propósito**: este manual destila a filosofia de Steve Jobs em princípios acionáveis para orientar decisões de produto, design e UX na Tomik/Automatik Labs. Leia antes de iniciar qualquer feature, sprint ou lançamento.
+
+---
+
+## 0) Credo
+
+* **Faça algo maravilhoso.** Não entregue “mais uma feature”; entregue algo que as pessoas **amem**.
+* **Tecnologia × Humanidades.** Busque a interseção: desempenho e beleza, engenharia e narrativa, dados e sentimento.
+* **Simplicidade agressiva.** Simplicidade não é falta; é **resultado de centenas de nãos**.
+* **Fim‑a‑fim.** Controle a experiência completa, do primeiro anúncio ao primeiro clique, do suporte ao unboxing digital.
+* **Qualidade sem desculpas.** Interno bonito, externo impecável; detalhes invisíveis também são produto.
+
+---
+
+## 1) Identidade Jobsiana (para ler em voz alta no kick‑off)
+
+1. **Comece pelo usuário, não pela planilha.** O que essa pessoa vai sentir nos primeiros 10 segundos?
+2. **Conte uma história curta.** Qual é a promessa em uma frase? *“Em X segundos você alcança Y.”*
+3. **Tenha gosto.** Curadoria e edição importam mais que catálogo. **Escolha**.
+4. **Diga não.** Aponte 3 coisas que **não** faremos agora e escreva o porquê.
+5. **Demonstre.** Mostre a coisa funcionando cedo e sempre. Opiniões perdem para demos.
+
+---
+
+## 2) Princípios de Produto
+
+1. **Simplicidade como estratégia**
+
+   * Remover passos > adicionar dicas.
+   * Uma decisão clara substitui 10 configurações.
+2. **Integração hardware/software/serviço** (no nosso caso: **app + IA + fluxos + suporte**)
+
+   * O usuário sente um **sistema**; elimine costuras entre módulos (CRM, Kanban, Agendamentos, IA Comercial…).
+3. **Foco implacável**
+
+   * 1 métrica norte por release. 1 momento “uau”. 1 persona primária.
+4. **Detalhes são o produto**
+
+   * Microinterações, estados vazios, vazão de erro. A “moldura” é parte da obra.
+5. **Narrativa e emoção**
+
+   * Nome, metáfora, som, loading, vazio, empoderamento pós‑tarefa. **Tudo comunica**.
+6. **Opiniado por padrão**
+
+   * Defaults inteligentes > assistentes longos. “Faça o certo automaticamente”.
+7. **Privacidade e respeito**
+
+   * O que não queremos saber? O que vamos esquecer por padrão?
+
+---
+
+## 3) Processo Jobsiano (rituais)
+
+**R1. Tenets (3–5)** — Antes de qualquer tela:
+
+* (a) **Promessa**: frase de impacto ao estilo palco (ex.: *“Em 30s, agende e confirme uma reunião com IA, sem fricção.”*)
+* (b) **Jobs To Be Done** principal e antijobs (mal‑usos a evitar)
+* (c) **Não‑metas** (ex.: “não será dashboard de 50 gráficos”)
+* (d) **Qualidade mínima** (latência, precisão, taxa de sucesso)
+
+**R2. Demo Semanal (quarta, 16h)**
+
+* Progresso é **vídeo + build**. Slides não substituem UX.
+* Regra 10’ demo / 10’ crítica / 5’ decisões.
+
+**R3. Revisão de Simplicidade (quinta, 11h)**
+
+* Cada fluxo: **conte os toques/cliques**.
+* Se >3 toques em ação vital, proponha corte.
+
+**R4. Pique de Lançamento**
+
+* “One more thing”: reserve um micro‑detalhe que arranca sorriso.
+* Treine a história (hook de 5s, demo de 90s, prova de 30s).
+
+**R5. Pós‑lançamento**
+
+* 72h de “linha de frente”: time de produto atende tickets, coleta atritos e decide 3 hotfixes.
+
+---
+
+## 4) Heurísticas Jobsianas de UX (checklist)
+
+**Primeiros 10 segundos**
+
+* Mensagem única, generosa em espaço, livre de jargões.
+* Ação primária inequívoca (1 CTA por view).
+
+**Fluxo**
+
+* Zero dead‑ends; sempre há **próximo passo** claro.
+* **Estados vazios** que ensinam: sample data + CTA para completar.
+
+**Microinterações**
+
+* Transições suaves com **significado** (tempo curto, easing natural).
+* Feedback imediato (rótulos mudam, loaders progressivos, confirmação elegante).
+
+**Linguagem**
+
+* Curta, humana, sem “configurês”. Prefira verbos.
+
+**Acessibilidade**
+
+* Contraste AA+, alvo de toque 44px, sem depender de cor para comunicar.
+
+**Performance percebida**
+
+* Pré‑carregue o essencial; desenhe para latência real.
+
+---
+
+## 5) Os “Nãos” que guardam a magia
+
+* **Sem opções por medo.** Se precisa de preferência, é porque a decisão durou pouco.
+* **Sem feature creep.** *A melhor nova feature pode ser remover duas.*
+* **Sem apresentações sem demo.** Design sem protótipo é opinião.
+* **Sem terceirizar gosto.** Pesquisa informa; **time decide**.
+
+---
+
+## 6) Padrões de Qualidade (porta de saída do sprint)
+
+1. **Promessa entregue?** (medida com teste de 90s com usuário frio)
+2. **Taxa de sucesso ≥ X%** em cenário típico
+3. **Latência P95 ≤** meta definida
+4. **Fricção ≤ 3 toques** por tarefa nuclear
+5. **Estados** (vazio, erro, sucesso) desenhados e testados
+6. **Narrativa pronta** (nome, tagline, release notes, walkthrough)
+
+---
+
+## 7) Design de Estados (templates)
+
+* **Vazio**: imagem leve + 1 frase de valor + 1 CTA + dados de exemplo
+* **Erro**: linguagem humana + ação de correção + fallback offline
+* **Sucesso**: reforço de valor + próximo passo automático
+
+---
+
+## 8) Storytelling de Lançamento (roteiro 90s)
+
+1. **Problema em 1 frase**
+2. **Promessa** (em números: tempo, cliques, conversão)
+3. **Demonstração contínua** (sem cortar)
+4. **Prova** (caso real, métrica, depoimento curto)
+5. **One more thing**
+
+---
+
+## 9) Métricas que importam (por release)
+
+* **Tempo até o “uau”** (TTP: time‑to‑pleasure)
+* **Taxa de sucesso da tarefa chave**
+* **Queda de suporte** em 14 dias
+* **Adoção do default** vs customização
+
+---
+
+## 10) Como decidir o **não** (árvore rápida)
+
+1. Ajuda a cumprir a **promessa** atual? Se não, **não agora**.
+2. Substitui 2+ passos? Se não, **não**.
+3. Mantém a história simples? Se complica, **não**.
+
+---
+
+## 11) Operacionalizando no contexto Tomik/Automatik
+
+* **CRM & Kanban**: foco no “moveu‑atualizou” sem flicker; drag‑and‑drop com feedback imediato e otimismo controlado.
+* **Agendamentos**: 30s da ida ao link à confirmação; defaults por persona; follow‑ups automáticos.
+* **IA Comercial (James)**: prompts opinados por padrão; linguagem humana; sempre propondo próximo passo monetizável.
+* **Onboarding**: 3 telas máx.; importar dados em 1 clique; confi guração mínima com presets inteligentes.
+
+---
+
+## 12) Guia de Nomenclatura (Jobsiano)
+
+* **Clareza > esperteza.** *iPhone: “telefone”*; *AirPods: “fones no ar”*.
+* Curto, falável, memorizável. Evite siglas internas.
+* Taglines com **número** ou **contraste** (ex.: “De lead a reunião em 30s”).
+
+---
+
+## 13) Checklist final “Steve” (para antes de apertar Publicar)
+
+* [ ] A primeira tela faz alguém dizer “uau” em 10s?
+* [ ] Qual **detalhe invisível** nos orgulha?
+* [ ] Cortamos o suficiente? O que mais dá para **remover**?
+* [ ] A demo está **irresistível** sem narrador?
+* [ ] O suporte sabe contar a mesma história em 30s?
+
+---
+
+## 14) Apêndice — Perguntas Jobsianas para críticas de design
+
+1. **Se isso fosse físico**, o que seria? (peso, textura, atrito)
+2. **Onde está o sorriso?** Qual micro‑momento encantador?
+3. **Se meu filho usar**, ele entende sem manual? Em quanto tempo?
+4. **Se amanhã eu subo no palco**, o que mostro em 90s?
+
+---
+
+## 15) Ritual cultural
+
+* **Piratas com responsabilidade.** Rebeldia no **ambiente controlado**: explore, mas entregue com disciplina.
+* **Feedback honesto.** Sem açúcar. **A coisa** importa mais que **o ego**.
+* **Orgulho do invisível.** Código limpo, nomes claros, bordas polidas.
+
+---
+
+## 16) Biblioteca viva (manter no Notion)
+
+* Exemplos de estados vazios
+* Galeria de “detalhes invisíveis”
+* Boas taglines
+* Demos de 90s que acertaram
+
+---
+
+> **Leitura de encerramento**: *“Simplicidade é a sofisticação definitiva. A coragem de escolher, de dizer não e de lapidar o invisível — é isso que transforma software em magia.”*
