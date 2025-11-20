@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/ui/cn";
-import { Send, Loader2, AlertCircle, Paperclip, X } from "lucide-react";
+import { Send, Loader2, AlertCircle, Paperclip, X, Mic, Square } from "lucide-react";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { MarkdownRenderer } from "./markdown-renderer";
 
@@ -38,10 +38,14 @@ export function ChatPanel({ sessionId, onSessionCreated }: ChatPanelProps) {
   const [input, setInput] = useState("");
   const [attachment, setAttachment] = useState<{ name: string; type: string; content: string } | null>(null);
   const [loading, setLoading] = useState(false);
+  const [isRecording, setIsRecording] = useState(false);
+  const [isTranscribing, setIsTranscribing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
 
   // Load messages when sessionId changes
   useEffect(() => {
@@ -178,6 +182,77 @@ export function ChatPanel({ sessionId, onSessionCreated }: ChatPanelProps) {
     if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mediaRecorder = new MediaRecorder(stream);
+      mediaRecorderRef.current = mediaRecorder;
+      audioChunksRef.current = [];
+
+      mediaRecorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          audioChunksRef.current.push(event.data);
+        }
+      };
+
+      mediaRecorder.onstop = async () => {
+        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+        await handleTranscribe(audioBlob);
+        
+        stream.getTracks().forEach(track => track.stop());
+      };
+
+      mediaRecorder.start();
+      setIsRecording(true);
+      setError(null);
+    } catch (err) {
+      console.error("Error accessing microphone:", err);
+      setError("Erro ao acessar microfone. Verifique as permissões.");
+    }
+  };
+
+  const stopRecording = () => {
+    if (mediaRecorderRef.current && isRecording) {
+      mediaRecorderRef.current.stop();
+      setIsRecording(false);
+      setIsTranscribing(true);
+    }
+  };
+
+  const handleTranscribe = async (audioBlob: Blob) => {
+    try {
+      const formData = new FormData();
+      formData.append('file', audioBlob, 'recording.webm');
+
+      const res = await fetch('/api/ai/transcribe', {
+        method: 'POST',
+        body: formData
+      });
+
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || "Falha na transcrição");
+      }
+      
+      const data = await res.json();
+      if (data.text) {
+        setInput(prev => (prev ? prev + " " + data.text : data.text));
+      }
+    } catch (err: any) {
+      setError(err.message || "Erro ao transcrever áudio.");
+    } finally {
+      setIsTranscribing(false);
+    }
+  };
+
+  const toggleRecording = () => {
+    if (isRecording) {
+      stopRecording();
+    } else {
+      startRecording();
+    }
+  };
+
   const isEmptyState = messages.length === 0 || (messages.length === 1 && messages[0].content === starterMessage);
 
   return (
@@ -306,7 +381,7 @@ export function ChatPanel({ sessionId, onSessionCreated }: ChatPanelProps) {
             />
             <Button
               onClick={() => fileInputRef.current?.click()}
-              disabled={loading || !!attachment}
+              disabled={loading || !!attachment || isRecording || isTranscribing}
               variant="outline"
               size="icon"
               className={cn(
@@ -319,9 +394,33 @@ export function ChatPanel({ sessionId, onSessionCreated }: ChatPanelProps) {
             >
               <Paperclip size={20} className="text-muted-foreground" />
             </Button>
+            
+            <Button
+              onClick={toggleRecording}
+              disabled={loading || isTranscribing}
+              variant="outline"
+              size="icon"
+              className={cn(
+                "h-[52px] w-[52px] min-w-[52px]",
+                "bg-background/50 border-white/10",
+                "hover:bg-white/5",
+                "transition-all duration-200",
+                isRecording && "bg-red-500/10 border-red-500/50 hover:bg-red-500/20"
+              )}
+              title={isRecording ? "Parar gravação" : "Gravar áudio"}
+            >
+              {isTranscribing ? (
+                <Loader2 size={20} className="animate-spin text-muted-foreground" />
+              ) : isRecording ? (
+                <Square size={20} className="text-red-500 fill-current" />
+              ) : (
+                <Mic size={20} className="text-muted-foreground" />
+              )}
+            </Button>
+
             <Button
               onClick={handleSend}
-              disabled={loading || (!input.trim() && !attachment)}
+              disabled={loading || (!input.trim() && !attachment) || isRecording || isTranscribing}
               size="lg"
               className={cn(
                 "h-[52px] px-6 min-w-[52px]",
