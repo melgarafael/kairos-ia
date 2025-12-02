@@ -33,7 +33,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import OpenAI from 'openai';
 import { requireStaffSession } from '@/lib/auth/guards';
 import { createSupabaseAdminClient } from '@/lib/supabase/admin';
-import { auditAgentEvent } from '@/lib/observability/audit';
+import { auditAgentEvent, auditMcpToolCall, type McpToolAuditPayload } from '@/lib/observability/audit';
 import { ADMIN_MCP_TOOLS, getToolCategory } from '@/lib/ai/admin-mcp-tools';
 import { getAdminSystemPrompt } from '@/lib/prompts/admin-agent-v3';
 
@@ -912,6 +912,7 @@ export async function POST(request: NextRequest) {
 
             for (const toolCall of iterationToolCalls) {
               const category = getToolCategory(toolCall.name);
+              const toolStartTime = Date.now();
 
               // Send tool execution indicator
               controller.enqueue(encoder.encode(JSON.stringify({
@@ -925,11 +926,26 @@ export async function POST(request: NextRequest) {
                 // Execute tool directly (calls admin-analytics)
                 console.log(`[ia-console-v3] Calling tool: ${toolCall.name}`, JSON.stringify(toolCall.arguments).slice(0, 200));
                 const result = await executeToolDirectly(toolCall.name, toolCall.arguments);
-                console.log(`[ia-console-v3] Tool result for ${toolCall.name}:`, JSON.stringify(result).slice(0, 500));
+                const executionTimeMs = Date.now() - toolStartTime;
+                console.log(`[ia-console-v3] Tool result for ${toolCall.name} (${executionTimeMs}ms):`, JSON.stringify(result).slice(0, 500));
 
                 // Store result
                 toolCall.result = result;
                 allToolCalls.push(toolCall);
+
+                // Audit MCP tool call (async, non-blocking)
+                auditMcpToolCall({
+                  user_id: session.user.id,
+                  session_id: sessionId,
+                  tool_name: toolCall.name,
+                  tool_category: category,
+                  arguments: toolCall.arguments,
+                  result: result as Record<string, unknown>,
+                  success: true,
+                  execution_time_ms: executionTimeMs,
+                  source: 'ia-console-v3',
+                  trace_id: traceId
+                }).catch(console.error);
 
                 // Send result to frontend
                 controller.enqueue(encoder.encode(JSON.stringify({
@@ -944,10 +960,25 @@ export async function POST(request: NextRequest) {
                   `[Tool: ${toolCall.name}]\nArgumentos: ${JSON.stringify(toolCall.arguments)}\nResultado: ${JSON.stringify(result)}`
                 );
               } catch (err) {
+                const executionTimeMs = Date.now() - toolStartTime;
                 console.error('[ia-console-v3] Tool error:', toolCall.name, err);
                 const errorMessage = err instanceof Error ? err.message : 'Unknown error';
                 toolCall.error = errorMessage;
                 allToolCalls.push(toolCall);
+
+                // Audit MCP tool call error (async, non-blocking)
+                auditMcpToolCall({
+                  user_id: session.user.id,
+                  session_id: sessionId,
+                  tool_name: toolCall.name,
+                  tool_category: category,
+                  arguments: toolCall.arguments,
+                  error: errorMessage,
+                  success: false,
+                  execution_time_ms: executionTimeMs,
+                  source: 'ia-console-v3',
+                  trace_id: traceId
+                }).catch(console.error);
 
                 controller.enqueue(encoder.encode(JSON.stringify({
                   k: 'tool_error',

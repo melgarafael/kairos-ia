@@ -14,7 +14,9 @@ import {
   ChevronLeft,
   ChevronRight,
   Cpu,
-  BrainCircuit
+  BrainCircuit,
+  Activity,
+  Receipt
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
@@ -27,6 +29,7 @@ export function Sidebar({ user }: SidebarProps) {
   const pathname = usePathname();
   const showIaConsoleV2 = process.env.NEXT_PUBLIC_FEATURE_IA_CONSOLE_V2 === "true";
   const showIaConsoleV3 = process.env.NEXT_PUBLIC_FEATURE_IA_CONSOLE_V3 === "true";
+  const showIaConsoleVendas = process.env.NEXT_PUBLIC_FEATURE_IA_CONSOLE_VENDAS === "true";
 
   return (
     <motion.aside
@@ -105,11 +108,27 @@ export function Sidebar({ user }: SidebarProps) {
               collapsed={collapsed}
             />
           )}
+          {showIaConsoleVendas && (
+            <SidebarLink
+              href="/ia-console/vendas"
+              label="IA Vendas"
+              icon={<Receipt size={20} />}
+              active={pathname === "/ia-console/vendas"}
+              collapsed={collapsed}
+            />
+          )}
           <SidebarLink
             href="/admin/security"
             label="Segurança"
             icon={<Shield size={20} />}
             active={pathname === "/admin/security"}
+            collapsed={collapsed}
+          />
+          <SidebarLink
+            href="/audit"
+            label="Auditoria MCP"
+            icon={<Activity size={20} />}
+            active={pathname === "/audit"}
             collapsed={collapsed}
           />
         </nav>

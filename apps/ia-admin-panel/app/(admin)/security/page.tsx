@@ -1,5 +1,7 @@
 import { Card, CardDescription, CardTitle } from "@/components/ui/card";
-import { Shield, Activity, Lock } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Shield, Activity, Lock, ArrowRight } from "lucide-react";
+import Link from "next/link";
 
 const rows = [
   {
@@ -10,7 +12,8 @@ const rows = [
   {
     icon: <Activity className="text-chart-2" />,
     title: "Auditoria MCP",
-    description: "Cada chamada a ferramentas é logada na tabela admin_ai_audit junto do user_id e payload."
+    description: "Cada chamada a ferramentas é logada na tabela admin_mcp_audit com argumentos, resultado e tempo de execução.",
+    href: "/audit"
   },
   {
     icon: <Lock className="text-chart-3" />,
@@ -39,6 +42,13 @@ export default function SecurityPage() {
             </div>
             <CardTitle>{row.title}</CardTitle>
             <CardDescription>{row.description}</CardDescription>
+            {row.href && (
+              <Button variant="ghost" className="px-0" asChild>
+                <Link href={row.href}>
+                  Ver logs <ArrowRight className="ml-1 h-4 w-4" />
+                </Link>
+              </Button>
+            )}
           </Card>
         ))}
       </div>

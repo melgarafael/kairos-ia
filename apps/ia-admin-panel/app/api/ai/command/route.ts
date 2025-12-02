@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { Redis } from "@upstash/redis";
 import { Ratelimit } from "@upstash/ratelimit";
 import { requireStaffSession } from "@/lib/auth/guards";
-import { auditAgentEvent } from "@/lib/observability/audit";
+import { auditAgentEvent, auditMcpToolCallsBatch, type McpToolAuditPayload } from "@/lib/observability/audit";
 
 type UiMessage = {
   role: "user" | "assistant";
@@ -28,6 +28,9 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 export const maxDuration = 180; // 3 minutes
 
 export async function POST(req: Request) {
+  // Generate trace ID for this request
+  const traceId = crypto.randomUUID();
+  
   let session;
   try {
     session = await requireStaffSession({ redirectOnFail: false });
@@ -121,11 +124,29 @@ export async function POST(req: Request) {
       event: "ai_command",
       metadata: {
         toolLogs: result.toolLogs ?? [],
-        sessionId
+        sessionId,
+        traceId
       }
     });
 
-    return NextResponse.json({ ...result, sessionId });
+    // Log granular MCP tool calls to admin_mcp_audit table
+    if (result.toolLogs && result.toolLogs.length > 0) {
+      const mcpAuditPayloads: McpToolAuditPayload[] = result.toolLogs.map((log) => ({
+        user_id: session.user.id,
+        session_id: sessionId,
+        tool_name: log.tool || "unknown",
+        arguments: log.args || {},
+        result: typeof log.output === "string" ? { output: log.output } : (log.output || {}),
+        success: !log.error,
+        error: log.error || undefined,
+        source: "api" as const,
+        trace_id: traceId
+      }));
+      
+      auditMcpToolCallsBatch(mcpAuditPayloads).catch(console.error);
+    }
+
+    return NextResponse.json({ ...result, sessionId, traceId });
   } catch (error: any) {
     console.error("[ai-command]", error);
     return NextResponse.json(
@@ -202,7 +223,8 @@ async function callN8nWebhook({
     let toolLogs: Array<{
       tool: string;
       args: Record<string, any>;
-      output: string;
+      output: string | Record<string, any>;
+      error?: string;
     }> = [];
 
     // Função auxiliar para extrair texto de uma string que pode ser JSON
