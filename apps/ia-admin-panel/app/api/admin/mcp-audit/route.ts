@@ -26,6 +26,7 @@ interface McpAuditLog {
   success: boolean;
   source: string;
   trace_id: string | null;
+  platform: string | null; // ticto, hotmart for vendas tools
   created_at: string;
 }
 
@@ -36,6 +37,8 @@ interface AggregatedStats {
   avg_execution_time_ms: number;
   top_tools: { tool_name: string; count: number }[];
   calls_by_category: { category: string; count: number }[];
+  calls_by_source: { source: string; count: number }[];
+  calls_by_platform: { platform: string; count: number }[];
 }
 
 // GET handler - Query audit logs
@@ -63,6 +66,8 @@ export async function GET(request: NextRequest) {
     const dateFrom = searchParams.get("date_from");
     const dateTo = searchParams.get("date_to");
     const traceId = searchParams.get("trace_id");
+    const source = searchParams.get("source"); // ia-console-v3, ia-console-vendas, mcp-server, api
+    const platform = searchParams.get("platform"); // ticto, hotmart
     const includeStats = searchParams.get("include_stats") === "true";
 
     // Build query
@@ -93,6 +98,12 @@ export async function GET(request: NextRequest) {
     }
     if (traceId) {
       query = query.eq("trace_id", traceId);
+    }
+    if (source) {
+      query = query.eq("source", source);
+    }
+    if (platform) {
+      query = query.eq("platform", platform);
     }
 
     const { data: logs, error, count } = await query;
@@ -215,13 +226,50 @@ async function getAggregatedStats(
     .map(([category, count]) => ({ category, count }))
     .sort((a, b) => b.count - a.count);
 
+  // Calls by source
+  const { data: sourceData } = await supabase
+    .from("admin_mcp_audit")
+    .select("source")
+    .limit(5000);
+
+  const sourceCounts = new Map<string, number>();
+  sourceData?.forEach(row => {
+    const src = row.source || "unknown";
+    const count = sourceCounts.get(src) || 0;
+    sourceCounts.set(src, count + 1);
+  });
+
+  const callsBySource = Array.from(sourceCounts.entries())
+    .map(([source, count]) => ({ source, count }))
+    .sort((a, b) => b.count - a.count);
+
+  // Calls by platform (for vendas tools)
+  const { data: platformData } = await supabase
+    .from("admin_mcp_audit")
+    .select("platform")
+    .not("platform", "is", null)
+    .limit(5000);
+
+  const platformCounts = new Map<string, number>();
+  platformData?.forEach(row => {
+    const plat = row.platform || "unknown";
+    const count = platformCounts.get(plat) || 0;
+    platformCounts.set(plat, count + 1);
+  });
+
+  const callsByPlatform = Array.from(platformCounts.entries())
+    .map(([platform, count]) => ({ platform, count }))
+    .sort((a, b) => b.count - a.count);
+
   return {
     total_calls: totalCalls || 0,
     successful_calls: successfulCalls || 0,
     failed_calls: failedCalls || 0,
     avg_execution_time_ms: Math.round(avgExecutionTime),
     top_tools: topTools,
-    calls_by_category: callsByCategory
+    calls_by_category: callsByCategory,
+    calls_by_source: callsBySource,
+    calls_by_platform: callsByPlatform
   };
 }
 

@@ -20,12 +20,14 @@ export type McpToolAuditPayload = {
   error?: string;
   execution_time_ms?: number;
   success?: boolean;
-  source?: "ia-console-v3" | "mcp-server" | "api";
+  source?: "ia-console-v3" | "ia-console-vendas" | "mcp-server" | "api";
   trace_id?: string;
+  platform?: "ticto" | "hotmart"; // For vendas tools
 };
 
 // Tool categories based on tool name prefixes
 const TOOL_CATEGORIES: Record<string, string> = {
+  // Admin tools
   admin_list_users: "users",
   admin_get_user: "users",
   admin_update_user: "users",
@@ -47,7 +49,26 @@ const TOOL_CATEGORIES: Record<string, string> = {
   admin_get_trail_feedback_analytics: "analytics",
   admin_get_feature_catalog: "analytics",
   admin_get_system_kpis: "analytics",
-  search_documentation: "docs"
+  search_documentation: "docs",
+  
+  // Ticto tools (vendas)
+  ticto_get_orders_summary: "orders",
+  ticto_search_orders: "orders",
+  ticto_get_order_by_id: "orders",
+  ticto_get_subscriptions_summary: "subscriptions",
+  ticto_search_subscriptions: "subscriptions",
+  ticto_search_customer: "customers",
+  
+  // Hotmart tools (vendas)
+  hotmart_get_sales_summary: "sales",
+  hotmart_search_sales: "sales",
+  hotmart_get_sale_by_transaction: "sales",
+  hotmart_get_subscriptions_summary: "subscriptions",
+  hotmart_search_subscriptions: "subscriptions",
+  hotmart_search_customer: "customers",
+  hotmart_get_products: "products",
+  hotmart_get_commissions: "commissions",
+  hotmart_get_refunds: "refunds"
 };
 
 /**
@@ -59,7 +80,7 @@ export function getToolCategoryFromName(toolName: string): string {
     return TOOL_CATEGORIES[toolName];
   }
   
-  // Prefix matching
+  // Prefix matching for admin tools
   if (toolName.startsWith("admin_list_") || toolName.startsWith("admin_get_user")) {
     return "users";
   }
@@ -71,6 +92,25 @@ export function getToolCategoryFromName(toolName: string): string {
   }
   if (toolName.includes("connection") || toolName.includes("supabase")) {
     return "connections";
+  }
+  
+  // Prefix matching for Ticto tools
+  if (toolName.startsWith("ticto_")) {
+    if (toolName.includes("order")) return "orders";
+    if (toolName.includes("subscription")) return "subscriptions";
+    if (toolName.includes("customer")) return "customers";
+    return "ticto";
+  }
+  
+  // Prefix matching for Hotmart tools
+  if (toolName.startsWith("hotmart_")) {
+    if (toolName.includes("sale")) return "sales";
+    if (toolName.includes("subscription")) return "subscriptions";
+    if (toolName.includes("customer")) return "customers";
+    if (toolName.includes("product")) return "products";
+    if (toolName.includes("commission")) return "commissions";
+    if (toolName.includes("refund")) return "refunds";
+    return "hotmart";
   }
   
   return "other";
@@ -118,13 +158,19 @@ export async function auditMcpToolCall(payload: McpToolAuditPayload) {
   console.info("[audit] mcp-tool-call", {
     tool: payload.tool_name,
     success: payload.success,
-    time_ms: payload.execution_time_ms
+    time_ms: payload.execution_time_ms,
+    platform: payload.platform
   });
 
   if (!supabaseConfig.serviceRoleKey) return;
 
   // Auto-detect category if not provided
   const category = payload.tool_category || getToolCategoryFromName(payload.tool_name);
+  
+  // Auto-detect platform from tool name if not provided
+  let platform = payload.platform;
+  if (!platform && payload.tool_name.startsWith("ticto_")) platform = "ticto";
+  if (!platform && payload.tool_name.startsWith("hotmart_")) platform = "hotmart";
 
   try {
     const res = await fetch(`${supabaseConfig.url}/rest/v1/admin_mcp_audit`, {
@@ -147,6 +193,7 @@ export async function auditMcpToolCall(payload: McpToolAuditPayload) {
         success: payload.success ?? true,
         source: payload.source || "ia-console-v3",
         trace_id: payload.trace_id || null,
+        platform: platform || null,
         created_at: new Date().toISOString()
       })
     });
@@ -167,20 +214,28 @@ export async function auditMcpToolCallsBatch(payloads: McpToolAuditPayload[]) {
 
   console.info("[audit] mcp-tool-calls-batch", { count: payloads.length });
 
-  const rows = payloads.map(payload => ({
-    user_id: payload.user_id,
-    session_id: payload.session_id || null,
-    tool_name: payload.tool_name,
-    tool_category: payload.tool_category || getToolCategoryFromName(payload.tool_name),
-    arguments: payload.arguments ?? {},
-    result: payload.result ?? {},
-    error: payload.error || null,
-    execution_time_ms: payload.execution_time_ms || null,
-    success: payload.success ?? true,
-    source: payload.source || "ia-console-v3",
-    trace_id: payload.trace_id || null,
-    created_at: new Date().toISOString()
-  }));
+  const rows = payloads.map(payload => {
+    // Auto-detect platform from tool name if not provided
+    let platform = payload.platform;
+    if (!platform && payload.tool_name.startsWith("ticto_")) platform = "ticto";
+    if (!platform && payload.tool_name.startsWith("hotmart_")) platform = "hotmart";
+    
+    return {
+      user_id: payload.user_id,
+      session_id: payload.session_id || null,
+      tool_name: payload.tool_name,
+      tool_category: payload.tool_category || getToolCategoryFromName(payload.tool_name),
+      arguments: payload.arguments ?? {},
+      result: payload.result ?? {},
+      error: payload.error || null,
+      execution_time_ms: payload.execution_time_ms || null,
+      success: payload.success ?? true,
+      source: payload.source || "ia-console-v3",
+      trace_id: payload.trace_id || null,
+      platform: platform || null,
+      created_at: new Date().toISOString()
+    };
+  });
 
   try {
     const res = await fetch(`${supabaseConfig.url}/rest/v1/admin_mcp_audit`, {

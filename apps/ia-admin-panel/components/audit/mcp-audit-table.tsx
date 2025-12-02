@@ -34,6 +34,7 @@ interface McpAuditLog {
   success: boolean;
   source: string;
   trace_id: string | null;
+  platform: string | null; // ticto, hotmart
   created_at: string;
 }
 
@@ -44,6 +45,8 @@ interface AggregatedStats {
   avg_execution_time_ms: number;
   top_tools: { tool_name: string; count: number }[];
   calls_by_category: { category: string; count: number }[];
+  calls_by_source: { source: string; count: number }[];
+  calls_by_platform: { platform: string; count: number }[];
 }
 
 interface ApiResponse {
@@ -65,7 +68,29 @@ const CATEGORY_COLORS: Record<string, string> = {
   connections: "bg-amber-500/20 text-amber-400",
   analytics: "bg-cyan-500/20 text-cyan-400",
   docs: "bg-pink-500/20 text-pink-400",
+  // Vendas categories
+  orders: "bg-orange-500/20 text-orange-400",
+  sales: "bg-orange-500/20 text-orange-400",
+  subscriptions: "bg-indigo-500/20 text-indigo-400",
+  customers: "bg-teal-500/20 text-teal-400",
+  products: "bg-lime-500/20 text-lime-400",
+  commissions: "bg-yellow-500/20 text-yellow-400",
+  refunds: "bg-red-500/20 text-red-400",
   other: "bg-gray-500/20 text-gray-400"
+};
+
+// Platform colors
+const PLATFORM_COLORS: Record<string, string> = {
+  ticto: "bg-green-500/20 text-green-400 border border-green-500/30",
+  hotmart: "bg-orange-500/20 text-orange-400 border border-orange-500/30"
+};
+
+// Source colors
+const SOURCE_COLORS: Record<string, string> = {
+  "ia-console-v3": "bg-blue-500/10 text-blue-400",
+  "ia-console-vendas": "bg-orange-500/10 text-orange-400",
+  "mcp-server": "bg-purple-500/10 text-purple-400",
+  "api": "bg-gray-500/10 text-gray-400"
 };
 
 // Format time ago
@@ -181,6 +206,8 @@ export function McpAuditTable() {
   const [total, setTotal] = useState(0);
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+  const [selectedSource, setSelectedSource] = useState<string | null>(null);
+  const [selectedPlatform, setSelectedPlatform] = useState<string | null>(null);
   const [showOnlyErrors, setShowOnlyErrors] = useState(false);
   const [expandedRow, setExpandedRow] = useState<string | null>(null);
   const [selectedTrace, setSelectedTrace] = useState<string | null>(null);
@@ -197,6 +224,8 @@ export function McpAuditTable() {
 
       if (searchTerm) params.set("tool_name", searchTerm);
       if (selectedCategory) params.set("category", selectedCategory);
+      if (selectedSource) params.set("source", selectedSource);
+      if (selectedPlatform) params.set("platform", selectedPlatform);
       if (showOnlyErrors) params.set("success", "false");
       if (traceFilter) params.set("trace_id", traceFilter);
 
@@ -216,7 +245,7 @@ export function McpAuditTable() {
     } finally {
       setLoading(false);
     }
-  }, [page, searchTerm, selectedCategory, showOnlyErrors, traceFilter]);
+  }, [page, searchTerm, selectedCategory, selectedSource, selectedPlatform, showOnlyErrors, traceFilter]);
 
   useEffect(() => {
     fetchLogs();
@@ -225,7 +254,7 @@ export function McpAuditTable() {
   // Reset page when filters change
   useEffect(() => {
     setPage(1);
-  }, [searchTerm, selectedCategory, showOnlyErrors, traceFilter]);
+  }, [searchTerm, selectedCategory, selectedSource, selectedPlatform, showOnlyErrors, traceFilter]);
 
   const categories = stats?.calls_by_category || [];
 
@@ -235,26 +264,111 @@ export function McpAuditTable() {
       {stats && <StatsCards stats={stats} />}
 
       {/* Filters & Controls */}
-      <div className="flex flex-wrap gap-4 items-center">
-        <div className="relative flex-1 min-w-[200px] max-w-md">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <Input
-            placeholder="Buscar por tool..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="pl-10"
-          />
+      <div className="space-y-4">
+        {/* Search and main filters */}
+        <div className="flex flex-wrap gap-4 items-center">
+          <div className="relative flex-1 min-w-[200px] max-w-md">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input
+              placeholder="Buscar por tool..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="pl-10"
+            />
+          </div>
+
+          <Button
+            variant={showOnlyErrors ? "destructive" : "ghost"}
+            size="sm"
+            onClick={() => setShowOnlyErrors(!showOnlyErrors)}
+          >
+            <XCircle className="h-4 w-4 mr-1" />
+            Apenas erros
+          </Button>
+
+          <Button variant="ghost" size="sm" onClick={fetchLogs} disabled={loading}>
+            <RefreshCw className={`h-4 w-4 mr-1 ${loading ? "animate-spin" : ""}`} />
+            Atualizar
+          </Button>
         </div>
 
-        <div className="flex gap-2 flex-wrap">
+        {/* Source filter */}
+        <div className="flex gap-2 flex-wrap items-center">
+          <span className="text-xs text-muted-foreground uppercase tracking-wider">Fonte:</span>
+          <Button
+            variant={selectedSource === null ? "default" : "ghost"}
+            size="sm"
+            onClick={() => setSelectedSource(null)}
+          >
+            Todos
+          </Button>
+          <Button
+            variant={selectedSource === "ia-console-v3" ? "default" : "ghost"}
+            size="sm"
+            onClick={() => setSelectedSource("ia-console-v3")}
+            className="text-blue-400"
+          >
+            IA Console V3
+          </Button>
+          <Button
+            variant={selectedSource === "ia-console-vendas" ? "default" : "ghost"}
+            size="sm"
+            onClick={() => setSelectedSource("ia-console-vendas")}
+            className="text-orange-400"
+          >
+            IA Vendas
+          </Button>
+          <Button
+            variant={selectedSource === "mcp-server" ? "default" : "ghost"}
+            size="sm"
+            onClick={() => setSelectedSource("mcp-server")}
+            className="text-purple-400"
+          >
+            MCP Server
+          </Button>
+        </div>
+
+        {/* Platform filter (only show when vendas source is selected or has vendas data) */}
+        {(selectedSource === "ia-console-vendas" || stats?.calls_by_platform?.length) && (
+          <div className="flex gap-2 flex-wrap items-center">
+            <span className="text-xs text-muted-foreground uppercase tracking-wider">Plataforma:</span>
+            <Button
+              variant={selectedPlatform === null ? "default" : "ghost"}
+              size="sm"
+              onClick={() => setSelectedPlatform(null)}
+            >
+              Todas
+            </Button>
+            <Button
+              variant={selectedPlatform === "ticto" ? "default" : "ghost"}
+              size="sm"
+              onClick={() => setSelectedPlatform("ticto")}
+              className="text-green-400"
+            >
+              🟢 Ticto
+            </Button>
+            <Button
+              variant={selectedPlatform === "hotmart" ? "default" : "ghost"}
+              size="sm"
+              onClick={() => setSelectedPlatform("hotmart")}
+              className="text-orange-400"
+            >
+              🟠 Hotmart
+            </Button>
+          </div>
+        )}
+
+        {/* Category filter */}
+        <div className="flex gap-2 flex-wrap items-center">
+          <span className="text-xs text-muted-foreground uppercase tracking-wider">Categoria:</span>
           <Button
             variant={selectedCategory === null ? "default" : "ghost"}
             size="sm"
             onClick={() => setSelectedCategory(null)}
           >
-            Todos
+            Todas
           </Button>
-          {categories.slice(0, 5).map((cat) => (
+          {categories.slice(0, 8).map((cat) => (
             <Button
               key={cat.category}
               variant={selectedCategory === cat.category ? "default" : "ghost"}
@@ -266,20 +380,6 @@ export function McpAuditTable() {
             </Button>
           ))}
         </div>
-
-        <Button
-          variant={showOnlyErrors ? "destructive" : "ghost"}
-          size="sm"
-          onClick={() => setShowOnlyErrors(!showOnlyErrors)}
-        >
-          <XCircle className="h-4 w-4 mr-1" />
-          Apenas erros
-        </Button>
-
-        <Button variant="ghost" size="sm" onClick={fetchLogs} disabled={loading}>
-          <RefreshCw className={`h-4 w-4 mr-1 ${loading ? "animate-spin" : ""}`} />
-          Atualizar
-        </Button>
       </div>
 
       {/* Trace Filter */}
@@ -343,6 +443,7 @@ export function McpAuditTable() {
                 <th className="px-4 py-3 text-left font-medium text-muted-foreground">Status</th>
                 <th className="px-4 py-3 text-left font-medium text-muted-foreground">Tool</th>
                 <th className="px-4 py-3 text-left font-medium text-muted-foreground">Categoria</th>
+                <th className="px-4 py-3 text-left font-medium text-muted-foreground">Fonte</th>
                 <th className="px-4 py-3 text-left font-medium text-muted-foreground">Trace</th>
                 <th className="px-4 py-3 text-left font-medium text-muted-foreground">Tempo</th>
                 <th className="px-4 py-3 text-left font-medium text-muted-foreground">Quando</th>
@@ -352,14 +453,14 @@ export function McpAuditTable() {
             <tbody className="divide-y divide-white/5">
               {loading && logs.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="px-4 py-12 text-center text-muted-foreground">
+                  <td colSpan={8} className="px-4 py-12 text-center text-muted-foreground">
                     <RefreshCw className="h-6 w-6 animate-spin mx-auto mb-2" />
                     Carregando...
                   </td>
                 </tr>
               ) : logs.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="px-4 py-12 text-center text-muted-foreground">
+                  <td colSpan={8} className="px-4 py-12 text-center text-muted-foreground">
                     Nenhum log encontrado
                   </td>
                 </tr>
@@ -379,7 +480,18 @@ export function McpAuditTable() {
                         )}
                       </td>
                       <td className="px-4 py-3 font-medium">
-                        {formatToolName(log.tool_name)}
+                        <div className="flex items-center gap-2">
+                          {formatToolName(log.tool_name)}
+                          {log.platform && (
+                            <span
+                              className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${
+                                PLATFORM_COLORS[log.platform] || "bg-gray-500/20 text-gray-400"
+                              }`}
+                            >
+                              {log.platform === "ticto" ? "🟢" : "🟠"} {log.platform}
+                            </span>
+                          )}
+                        </div>
                       </td>
                       <td className="px-4 py-3">
                         <span
@@ -388,6 +500,17 @@ export function McpAuditTable() {
                           }`}
                         >
                           {log.tool_category || "other"}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3">
+                        <span
+                          className={`px-2 py-0.5 rounded text-xs ${
+                            SOURCE_COLORS[log.source] || SOURCE_COLORS.api
+                          }`}
+                        >
+                          {log.source === "ia-console-vendas" ? "vendas" : 
+                           log.source === "ia-console-v3" ? "admin" :
+                           log.source}
                         </span>
                       </td>
                       <td className="px-4 py-3">
@@ -428,7 +551,7 @@ export function McpAuditTable() {
                     </tr>
                     {expandedRow === log.id && (
                       <tr key={`${log.id}-expanded`} className="bg-white/[0.02]">
-                        <td colSpan={7} className="px-4 py-4">
+                        <td colSpan={8} className="px-4 py-4">
                           <div className="grid gap-4 md:grid-cols-2 text-xs">
                             <div className="space-y-2">
                               <p className="font-medium text-muted-foreground uppercase tracking-wider">
@@ -457,6 +580,13 @@ export function McpAuditTable() {
                               <span>
                                 <strong>Source:</strong> {log.source}
                               </span>
+                              {log.platform && (
+                                <span className={`px-2 py-0.5 rounded text-xs font-medium ${
+                                  PLATFORM_COLORS[log.platform] || "bg-gray-500/20 text-gray-400"
+                                }`}>
+                                  <strong>Plataforma:</strong> {log.platform}
+                                </span>
+                              )}
                               {log.trace_id && (
                                 <div className="flex items-center gap-2 ml-auto">
                                   <Button
