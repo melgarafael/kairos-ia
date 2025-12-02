@@ -13,7 +13,8 @@ import {
   Sparkles,
   ChevronLeft,
   ChevronRight,
-  Cpu
+  Cpu,
+  BrainCircuit
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
@@ -25,6 +26,7 @@ export function Sidebar({ user }: SidebarProps) {
   const [collapsed, setCollapsed] = useState(false);
   const pathname = usePathname();
   const showIaConsoleV2 = process.env.NEXT_PUBLIC_FEATURE_IA_CONSOLE_V2 === "true";
+  const showIaConsoleV3 = process.env.NEXT_PUBLIC_FEATURE_IA_CONSOLE_V3 === "true";
 
   return (
     <motion.aside
@@ -90,7 +92,16 @@ export function Sidebar({ user }: SidebarProps) {
               href="/ia-console/v2"
               label="IA Console V2"
               icon={<Cpu size={20} />}
-              active={pathname?.startsWith("/ia-console")}
+              active={pathname === "/ia-console/v2"}
+              collapsed={collapsed}
+            />
+          )}
+          {showIaConsoleV3 && (
+            <SidebarLink
+              href="/ia-console/v3"
+              label="IA Console V3"
+              icon={<BrainCircuit size={20} />}
+              active={pathname === "/ia-console/v3"}
               collapsed={collapsed}
             />
           )}

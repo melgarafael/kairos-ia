@@ -1,5 +1,6 @@
 // @ts-nocheck
 import { serve } from 'https://deno.land/std@0.224.0/http/server.ts'
+import { resolveClientOrgId } from '../_shared/orgCredentials.ts'
 
 const allowedOrigins = (Deno.env.get('CORS_ORIGINS') || Deno.env.get('CORS_ORIGIN') || '')
   .split(',')
@@ -25,6 +26,67 @@ function cleanBase64(str: string) {
   s = s.replace(/-/g, '+').replace(/_/g, '/')
   while (s.length % 4 !== 0) s += '='
   return s
+}
+
+/**
+ * Encrypt a key value using pgcrypto via RPC
+ * IMPORTANT: No base64 fallback - must use proper encryption for security
+ */
+async function encryptKeyWithRpc(masterClient: any, plaintext: string | null | undefined): Promise<string | null> {
+  const value = typeof plaintext === 'string' ? plaintext.trim() : ''
+  if (!value) return null
+  
+  try {
+    const { data, error } = await masterClient.rpc('encrypt_key', { plaintext: value })
+    if (error) {
+      console.error('[admin-analytics] encrypt_key RPC error:', error.message)
+      throw new Error(`Encryption failed: ${error.message}`)
+    }
+    const encrypted = typeof data === 'string' ? data.trim() : ''
+    if (!encrypted) {
+      throw new Error('Encryption returned empty result')
+    }
+    return encrypted
+  } catch (err: any) {
+    console.error('[admin-analytics] encryptKeyWithRpc exception:', err.message)
+    throw err
+  }
+}
+
+function randomCharFromSet(set: string) {
+  const array = new Uint32Array(1)
+  crypto.getRandomValues(array)
+  return set[array[0] % set.length]
+}
+
+function shuffleArray<T>(input: T[]) {
+  const arr = [...input]
+  for (let i = arr.length - 1; i > 0; i--) {
+    const randArray = new Uint32Array(1)
+    crypto.getRandomValues(randArray)
+    const j = randArray[0] % (i + 1)
+    const tmp = arr[i]
+    arr[i] = arr[j]
+    arr[j] = tmp
+  }
+  return arr
+}
+
+function generateSecurePassword(length = 16) {
+  const minLength = 12
+  const maxLength = 64
+  const targetLength = Math.max(minLength, Math.min(maxLength, Math.floor(length)))
+  const upper = 'ABCDEFGHJKLMNPQRSTUVWXYZ'
+  const lower = 'abcdefghijkmnopqrstuvwxyz'
+  const digits = '23456789'
+  const symbols = '@#$%&*!?'
+  const pools = [upper, lower, digits, symbols]
+  const chars: string[] = pools.map(set => randomCharFromSet(set))
+  const allChars = pools.join('')
+  while (chars.length < targetLength) {
+    chars.push(randomCharFromSet(allChars))
+  }
+  return shuffleArray(chars).join('')
 }
 
 serve(async (req) => {
@@ -399,7 +461,7 @@ serve(async (req) => {
         }
         const { error: insErr } = await supabase
           .from('saas_supabases_connections')
-          .upsert(row, { onConflict: 'owner_id, supabase_url' })
+          .upsert(row, { onConflict: 'owner_id,supabase_url' })
         if (insErr) return new Response(insErr.message, { status: 400, headers: getCorsHeaders(req) })
         return new Response(JSON.stringify({ ok: true, inserted: 1 }), { status: 200, headers: { 'content-type': 'application/json', ...getCorsHeaders(req) } })
       } catch (err: any) {
@@ -435,7 +497,7 @@ serve(async (req) => {
             }
             const { error: upErr } = await supabase
               .from('saas_supabases_connections')
-              .upsert(row, { onConflict: 'owner_id, supabase_url' })
+              .upsert(row, { onConflict: 'owner_id,supabase_url' })
             if (upErr) throw new Error(upErr.message)
             results.push({ user_id: u.id, ok: true })
           } catch (e: any) {
@@ -907,10 +969,8 @@ serve(async (req) => {
         // Buscar usuários que têm nome e email, filtrando por busca
         const { data: users, error } = await supabase
           .from('saas_users')
-          .select('email, name')
+          .select('id, email, name')
           .or(`email.ilike.%${search}%,name.ilike.%${search}%`)
-          .not('name', 'is', null)
-          .neq('name', '')
           .limit(limit)
 
         if (error) {
@@ -920,10 +980,11 @@ serve(async (req) => {
 
         const formattedUsers = (users || [])
           .map(u => ({
+            id: u.id,
             email: (u.email || '').toLowerCase().trim(),
             name: (u.name || '').trim() || u.email.split('@')[0]
           }))
-          .filter(u => u.email && u.name)
+          .filter(u => u.email)
 
         return new Response(JSON.stringify({
           ok: true,
@@ -2009,6 +2070,7 @@ serve(async (req) => {
       try {
         const body = await req.json().catch(() => ({}))
         const userId = (body?.user_id as string || '').trim()
+        const organizationId = (body?.organization_id as string || '').trim()
         const supabaseUrl = (body?.supabase_url as string || '').trim()
         const anonKey = (body?.anon_key as string || '').trim()
         const serviceRoleKey = (body?.service_role_key as string || '').trim()
@@ -2025,10 +2087,43 @@ serve(async (req) => {
           return new Response(`Connection test failed: ${testErr.message}`, { status: 400, headers: getCorsHeaders(req) })
         }
 
-        // Create connection in saas_supabases_connections
-        const encryptedAnon = btoa(anonKey)
-        const encryptedService = serviceRoleKey ? btoa(serviceRoleKey) : null
-        
+        let clientOrgId = organizationId
+        if (!clientOrgId) {
+          try {
+            clientOrgId = await resolveClientOrgId(supabase, userId)
+          } catch {
+            clientOrgId = null
+          }
+        }
+        if (!clientOrgId) {
+          return new Response('organization_id is required to bind credentials', { status: 400, headers: getCorsHeaders(req) })
+        }
+
+        // Use pgcrypto encryption via RPC (not base64!)
+        let encryptedAnon: string | null
+        let encryptedService: string | null = null
+        try {
+          encryptedAnon = await encryptKeyWithRpc(supabase, anonKey)
+          if (serviceRoleKey) {
+            encryptedService = await encryptKeyWithRpc(supabase, serviceRoleKey)
+          }
+        } catch (encErr: any) {
+          return new Response(`Encryption failed: ${encErr.message}`, { status: 500, headers: getCorsHeaders(req) })
+        }
+
+        const { error: orgErr } = await supabase
+          .from('saas_organizations')
+          .upsert({
+            owner_id: userId,
+            client_org_id: clientOrgId,
+            client_supabase_url: supabaseUrl,
+            client_anon_key_encrypted: encryptedAnon,
+            client_service_key_encrypted: encryptedService,
+            setup_completed: true,
+            updated_at: new Date().toISOString()
+          }, { onConflict: 'owner_id,client_org_id' })
+        if (orgErr) return new Response(orgErr.message, { status: 400, headers: getCorsHeaders(req) })
+
         const { error: connErr } = await supabase
           .from('saas_supabases_connections')
           .upsert({
@@ -2042,19 +2137,7 @@ serve(async (req) => {
 
         if (connErr) return new Response(connErr.message, { status: 400, headers: getCorsHeaders(req) })
 
-        // Also update saas_users for backward compatibility
-        await supabase
-          .from('saas_users')
-          .update({
-            supabase_url: supabaseUrl,
-            supabase_key_encrypted: encryptedAnon,
-            service_role_encrypted: encryptedService,
-            setup_completed: true,
-            updated_at: new Date().toISOString()
-          })
-          .eq('id', userId)
-
-        return new Response(JSON.stringify({ ok: true, user_id: userId }), { status: 200, headers: { 'content-type': 'application/json', ...getCorsHeaders(req) } })
+        return new Response(JSON.stringify({ ok: true, user_id: userId, organization_id: clientOrgId }), { status: 200, headers: { 'content-type': 'application/json', ...getCorsHeaders(req) } })
       } catch (err: any) {
         return new Response(err?.message || 'Error connecting Supabase', { status: 500, headers: getCorsHeaders(req) })
       }
@@ -2070,7 +2153,11 @@ serve(async (req) => {
         const accountType = (body?.account_type as string || '').trim() || 'padrao'
         const memberSeatsExtra = Number(body?.member_seats_extra || 0)
         const redirectToRaw = (body?.redirect_url as string || '').trim()
-        
+        const passwordStrategyRaw = (body?.password_strategy || body?.password_mode || '').trim().toLowerCase()
+        const providedPassword = (body?.password as string || '').trim()
+        const passwordLengthRaw = Number(body?.password_length || 16)
+        const generatePasswordFlag = body?.generate_password === true
+
         if (!email) {
           return new Response('Missing email', { status: 400, headers: getCorsHeaders(req) })
         }
@@ -2090,7 +2177,7 @@ serve(async (req) => {
           return new Response('User already exists', { status: 409, headers: getCorsHeaders(req) })
         }
 
-        // Build redirect URL
+        // Build redirect URL for recovery strategy
         const DEFAULT_APP_URL = Deno.env.get('APP_PUBLIC_URL') || Deno.env.get('VITE_APP_PUBLIC_URL') || ''
         let redirectTo = ''
         try {
@@ -2099,15 +2186,49 @@ serve(async (req) => {
           redirectTo = ''
         }
 
-        // Create user in Supabase Auth (without password, email_confirm: false)
-        const { data: createdUser, error: createErr } = await supabase.auth.admin.createUser({
+        // Resolve password strategy
+        const normalizedStrategy = passwordStrategyRaw || ''
+        let passwordStrategy: 'recovery_link' | 'custom' | 'random' = 'recovery_link'
+        if (normalizedStrategy === 'custom' || normalizedStrategy === 'manual' || normalizedStrategy === 'set_password') {
+          passwordStrategy = 'custom'
+        } else if (normalizedStrategy === 'random') {
+          passwordStrategy = 'random'
+        } else if (!normalizedStrategy) {
+          if (providedPassword) {
+            passwordStrategy = 'custom'
+          } else if (generatePasswordFlag) {
+            passwordStrategy = 'random'
+          }
+        }
+
+        let finalPassword: string | null = null
+        if (passwordStrategy === 'custom') {
+          if (!providedPassword) {
+            return new Response('password is required when password_strategy=custom', { status: 400, headers: getCorsHeaders(req) })
+          }
+          if (providedPassword.length < 8) {
+            return new Response('Password must be at least 8 characters', { status: 400, headers: getCorsHeaders(req) })
+          }
+          finalPassword = providedPassword
+        } else if (passwordStrategy === 'random') {
+          const requestedLength = Number.isFinite(passwordLengthRaw) ? passwordLengthRaw : 16
+          finalPassword = generateSecurePassword(requestedLength)
+        }
+
+        // Create user in Supabase Auth
+        const createPayload: any = {
           email,
-          email_confirm: false, // User needs to confirm email and set password
+          email_confirm: passwordStrategy !== 'recovery_link', // Allow immediate login when password is defined
           user_metadata: {
             name: name || email.split('@')[0],
             account_type: accountType
           }
-        })
+        }
+        if (finalPassword) {
+          createPayload.password = finalPassword
+        }
+
+        const { data: createdUser, error: createErr } = await supabase.auth.admin.createUser(createPayload)
 
         if (createErr || !createdUser?.user?.id) {
           return new Response(`Failed to create user: ${createErr?.message || 'Unknown error'}`, { status: 400, headers: getCorsHeaders(req) })
@@ -2119,7 +2240,7 @@ serve(async (req) => {
         await new Promise(resolve => setTimeout(resolve, 1000))
 
         // Update saas_users with additional fields if provided
-        if (accountType !== 'padrao' || memberSeatsExtra > 0) {
+        if (accountType !== 'padrao' || memberSeatsExtra > 0 || name) {
           const updateData: any = { updated_at: new Date().toISOString() }
           if (accountType !== 'padrao') updateData.account_type = accountType
           if (memberSeatsExtra > 0) updateData.member_seats_extra = memberSeatsExtra
@@ -2131,78 +2252,263 @@ serve(async (req) => {
             .eq('id', userId)
         }
 
-        // Generate recovery link for password setup
-        const { data: linkData, error: linkErr } = await supabase.auth.admin.generateLink({
-          type: 'recovery',
-          email,
-          options: {
-            redirectTo: redirectTo || undefined
-          }
-        })
+        let emailSent = false
+        let passwordSetupLink: string | null = null
 
-        if (linkErr || !linkData) {
-          // User created but failed to generate link - still return success but log error
-          console.error('Failed to generate recovery link:', linkErr)
-          return new Response(JSON.stringify({
-            ok: true,
-            user_id: userId,
+        if (passwordStrategy === 'recovery_link') {
+          // Generate recovery link for password setup
+          const { data: linkData, error: linkErr } = await supabase.auth.admin.generateLink({
+            type: 'recovery',
             email,
-            warning: 'User created but failed to generate password setup link. You may need to send recovery email manually.'
-          }), { status: 200, headers: { 'content-type': 'application/json', ...getCorsHeaders(req) } })
+            options: {
+              redirectTo: redirectTo || undefined
+            }
+          })
+
+          if (linkErr || !linkData) {
+            // User created but failed to generate link - still return success but log error
+            console.error('Failed to generate recovery link:', linkErr)
+            return new Response(JSON.stringify({
+              ok: true,
+              user_id: userId,
+              email,
+              password_strategy: passwordStrategy,
+              warning: 'User created but failed to generate password setup link. You may need to send recovery email manually.'
+            }), { status: 200, headers: { 'content-type': 'application/json', ...getCorsHeaders(req) } })
+          }
+
+          // Extract action_link - try multiple possible paths
+          const actionLink = (linkData as any)?.properties?.action_link 
+            || (linkData as any)?.action_link 
+            || (linkData as any)?.link
+            || ''
+
+          if (!actionLink) {
+            console.error('Failed to extract action_link from linkData:', JSON.stringify(linkData))
+            return new Response(JSON.stringify({
+              ok: false,
+              user_id: userId,
+              email,
+              password_strategy: passwordStrategy,
+              error: 'Failed to extract password setup link. User created but email not sent.'
+            }), { status: 500, headers: { 'content-type': 'application/json', ...getCorsHeaders(req) } })
+          }
+
+          passwordSetupLink = actionLink
+
+          if (body?.send_recovery_email === false) {
+            // Skip email dispatch, return link to the caller
+            return new Response(JSON.stringify({
+              ok: true,
+              user_id: userId,
+              email,
+              password_strategy: passwordStrategy,
+              password_setup_link: passwordSetupLink,
+              message: 'User created successfully. Share the password setup link manually.'
+            }), { status: 200, headers: { 'content-type': 'application/json', ...getCorsHeaders(req) } })
+          }
+
+          // Send email via Resend
+          const RESEND_API_KEY = Deno.env.get('RESEND_API_KEY')
+          const RESEND_FROM_EMAIL = Deno.env.get('RESEND_FROM_EMAIL') || 'TomikCRM <no-reply@automatiklabs.com.br>'
+          
+          if (!RESEND_API_KEY) {
+            console.error('RESEND_API_KEY not configured')
+            return new Response(JSON.stringify({
+              ok: false,
+              user_id: userId,
+              email,
+              password_strategy: passwordStrategy,
+              error: 'Email service not configured. User created but email not sent.'
+            }), { status: 500, headers: { 'content-type': 'application/json', ...getCorsHeaders(req) } })
+          }
+
+          const subject = 'Bem-vindo ao TomikCRM - Defina sua senha'
+          const html = `
+            <div style="font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; color:#0f172a; max-width:600px; margin:0 auto">
+              <h2 style="margin:0 0 12px; color:#1e293b">Bem-vindo ao TomikCRM!</h2>
+              <p style="margin:0 0 16px; color:#475569; line-height:1.6">
+                Sua conta foi criada com sucesso. Clique no botão abaixo para definir sua senha e começar a usar o sistema.
+              </p>
+              <p style="margin:24px 0">
+                <a href="${actionLink}" style="display:inline-block;background:#3b82f6;color:#fff;text-decoration:none;padding:12px 24px;border-radius:10px;font-weight:500">Definir senha</a>
+              </p>
+              <p style="margin:16px 0 0;color:#64748b;font-size:14px;line-height:1.5">
+                Este link é válido por 24 horas. Se você não solicitou esta conta, ignore este e-mail.
+              </p>
+              <p style="margin:16px 0 0;color:#64748b;font-size:12px;line-height:1.5">
+                Se o botão não funcionar, copie e cole este link no navegador:<br>
+                <a href="${actionLink}" style="color:#3b82f6;word-break:break-all">${actionLink}</a>
+              </p>
+            </div>
+          `
+
+          try {
+            const resendRes = await fetch('https://api.resend.com/emails', {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${RESEND_API_KEY}`,
+                'Content-Type': 'application/json'
+              },
+              body: JSON.stringify({
+                from: RESEND_FROM_EMAIL,
+                to: [email],
+                subject,
+                html
+              })
+            })
+
+            if (!resendRes.ok) {
+              const txt = await resendRes.text().catch(() => '')
+              console.error('Resend error:', resendRes.status, txt)
+              return new Response(JSON.stringify({
+                ok: false,
+                user_id: userId,
+                email,
+                password_strategy: passwordStrategy,
+                error: `Failed to send email: ${txt || resendRes.statusText}. User created but email not sent.`
+              }), { status: 500, headers: { 'content-type': 'application/json', ...getCorsHeaders(req) } })
+            }
+            emailSent = true
+          } catch (emailErr: any) {
+            console.error('Failed to send email:', emailErr)
+            return new Response(JSON.stringify({
+              ok: false,
+              user_id: userId,
+              email,
+              password_strategy: passwordStrategy,
+              error: `Failed to send email: ${emailErr?.message || 'Unknown error'}. User created but email not sent.`
+            }), { status: 500, headers: { 'content-type': 'application/json', ...getCorsHeaders(req) } })
+          }
         }
 
-        // Extract action_link - try multiple possible paths
-        const actionLink = (linkData as any)?.properties?.action_link 
-          || (linkData as any)?.action_link 
-          || (linkData as any)?.link
+        const responsePayload: any = {
+          ok: true,
+          user_id: userId,
+          email,
+          password_strategy: passwordStrategy
+        }
+
+        if (passwordStrategy === 'recovery_link') {
+          responsePayload.password_setup_link = passwordSetupLink
+          responsePayload.password_email_sent = emailSent
+          responsePayload.message = emailSent
+            ? 'User created successfully. Password setup email sent.'
+            : 'User created successfully.'
+        } else if (passwordStrategy === 'random') {
+          responsePayload.generated_password = finalPassword
+          responsePayload.message = 'User created with a temporary password.'
+        } else {
+          responsePayload.message = 'User created with the provided password.'
+        }
+
+        return new Response(JSON.stringify(responsePayload), { status: 200, headers: { 'content-type': 'application/json', ...getCorsHeaders(req) } })
+      } catch (err: any) {
+        return new Response(err?.message || 'Error creating user', { status: 500, headers: getCorsHeaders(req) })
+      }
+    }
+
+    if (action === 'generate_magic_link' && req.method === 'POST') {
+      try {
+        const body = await req.json().catch(() => ({}))
+        const email = (body?.email as string || '').trim().toLowerCase()
+        const redirectToRaw = (body?.redirect_url as string || '').trim()
+        const sendEmail = body?.send_email === true
+        const flowTypeRaw = (body?.flow_type as string || body?.type as string || '').trim().toLowerCase()
+
+        if (!email) {
+          return new Response('Missing email', { status: 400, headers: getCorsHeaders(req) })
+        }
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+          return new Response('Invalid email format', { status: 400, headers: getCorsHeaders(req) })
+        }
+
+        // Ensure user exists
+        const { data: userRow, error: userErr } = await supabase
+          .from('saas_users')
+          .select('id, email, name')
+          .eq('email', email)
+          .maybeSingle()
+
+        if (userErr) {
+          return new Response(userErr.message, { status: 400, headers: getCorsHeaders(req) })
+        }
+        if (!userRow?.id) {
+          return new Response('User not found for the provided email', { status: 404, headers: getCorsHeaders(req) })
+        }
+
+        const DEFAULT_APP_URL = Deno.env.get('APP_PUBLIC_URL') || Deno.env.get('VITE_APP_PUBLIC_URL') || ''
+        let redirectTo = ''
+        try {
+          redirectTo = redirectToRaw || (DEFAULT_APP_URL ? new URL('/', DEFAULT_APP_URL).toString() : '')
+        } catch {
+          redirectTo = redirectToRaw || DEFAULT_APP_URL || ''
+        }
+
+        const allowedTypes = new Set(['magiclink', 'signup', 'recovery', 'otp'])
+        const linkType = allowedTypes.has(flowTypeRaw) ? flowTypeRaw : 'magiclink'
+
+        const { data: linkData, error: linkErr } = await supabase.auth.admin.generateLink({
+          type: linkType,
+          email,
+          options: redirectTo ? { redirectTo } : undefined
+        } as any)
+
+        if (linkErr || !linkData) {
+          return new Response(`Failed to generate link: ${linkErr?.message || 'Unknown error'}`, { status: 400, headers: getCorsHeaders(req) })
+        }
+
+        const actionLink = (linkData as any)?.properties?.action_link
+          || (linkData as any)?.action_link
           || ''
 
         if (!actionLink) {
-          console.error('Failed to extract action_link from linkData:', JSON.stringify(linkData))
-          return new Response(JSON.stringify({
-            ok: false,
-            user_id: userId,
-            email,
-            error: 'Failed to extract password setup link. User created but email not sent.'
-          }), { status: 500, headers: { 'content-type': 'application/json', ...getCorsHeaders(req) } })
+          return new Response('Failed to retrieve action link from Supabase', { status: 500, headers: getCorsHeaders(req) })
         }
-
-        // Send email via Resend
-        const RESEND_API_KEY = Deno.env.get('RESEND_API_KEY')
-        const RESEND_FROM_EMAIL = Deno.env.get('RESEND_FROM_EMAIL') || 'TomikCRM <no-reply@automatiklabs.com.br>'
-        
-        if (!RESEND_API_KEY) {
-          console.error('RESEND_API_KEY not configured')
-          return new Response(JSON.stringify({
-            ok: false,
-            user_id: userId,
-            email,
-            error: 'Email service not configured. User created but email not sent.'
-          }), { status: 500, headers: { 'content-type': 'application/json', ...getCorsHeaders(req) } })
-        }
-
-        const subject = 'Bem-vindo ao TomikCRM - Defina sua senha'
-        const html = `
-          <div style="font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; color:#0f172a; max-width:600px; margin:0 auto">
-            <h2 style="margin:0 0 12px; color:#1e293b">Bem-vindo ao TomikCRM!</h2>
-            <p style="margin:0 0 16px; color:#475569; line-height:1.6">
-              Sua conta foi criada com sucesso. Clique no botão abaixo para definir sua senha e começar a usar o sistema.
-            </p>
-            <p style="margin:24px 0">
-              <a href="${actionLink}" style="display:inline-block;background:#3b82f6;color:#fff;text-decoration:none;padding:12px 24px;border-radius:10px;font-weight:500">Definir senha</a>
-            </p>
-            <p style="margin:16px 0 0;color:#64748b;font-size:14px;line-height:1.5">
-              Este link é válido por 24 horas. Se você não solicitou esta conta, ignore este e-mail.
-            </p>
-            <p style="margin:16px 0 0;color:#64748b;font-size:12px;line-height:1.5">
-              Se o botão não funcionar, copie e cole este link no navegador:<br>
-              <a href="${actionLink}" style="color:#3b82f6;word-break:break-all">${actionLink}</a>
-            </p>
-          </div>
-        `
 
         let emailSent = false
-        try {
+        if (sendEmail) {
+          const RESEND_API_KEY = Deno.env.get('RESEND_API_KEY')
+          const RESEND_FROM_EMAIL = Deno.env.get('RESEND_FROM_EMAIL') || 'TomikCRM <no-reply@automatiklabs.com.br>'
+
+          if (!RESEND_API_KEY) {
+            return new Response('Email service not configured (RESEND_API_KEY missing)', { status: 500, headers: getCorsHeaders(req) })
+          }
+
+          const subject = (() => {
+            if (linkType === 'recovery') return 'Recupere sua senha do TomikCRM'
+            if (linkType === 'signup') return 'Confirme seu email no TomikCRM'
+            return 'Seu link de acesso ao TomikCRM'
+          })()
+          const cta = (() => {
+            if (linkType === 'recovery') return 'Criar nova senha'
+            if (linkType === 'signup') return 'Confirmar email'
+            return 'Entrar agora'
+          })()
+          const title = (() => {
+            if (linkType === 'recovery') return 'Recuperação de senha'
+            if (linkType === 'signup') return 'Confirmação de email'
+            return 'Acesse com link mágico'
+          })()
+          const html = `
+            <div style="font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; color:#0f172a; max-width:600px; margin:0 auto">
+              <h2 style="margin:0 0 12px; color:#1e293b">${title}</h2>
+              <p style="margin:0 0 16px; color:#475569; line-height:1.6">
+                Clique no botão abaixo para continuar.
+              </p>
+              <p style="margin:24px 0">
+                <a href="${actionLink}" style="display:inline-block;background:#3b82f6;color:#fff;text-decoration:none;padding:12px 24px;border-radius:10px;font-weight:500">${cta}</a>
+              </p>
+              <p style="margin:16px 0 0;color:#64748b;font-size:12px;line-height:1.5">
+                O link é válido por 24 horas. Se você não solicitou este acesso, ignore este email.
+              </p>
+              <p style="margin:16px 0 0;color:#64748b;font-size:12px;line-height:1.5">
+                Se o botão não funcionar, copie e cole este link no navegador:<br>
+                <a href="${actionLink}" style="color:#3b82f6;word-break:break-all">${actionLink}</a>
+              </p>
+            </div>
+          `
+
           const resendRes = await fetch('https://api.resend.com/emails', {
             method: 'POST',
             headers: {
@@ -2219,33 +2525,22 @@ serve(async (req) => {
 
           if (!resendRes.ok) {
             const txt = await resendRes.text().catch(() => '')
-            console.error('Resend error:', resendRes.status, txt)
-            return new Response(JSON.stringify({
-              ok: false,
-              user_id: userId,
-              email,
-              error: `Failed to send email: ${txt || resendRes.statusText}. User created but email not sent.`
-            }), { status: 500, headers: { 'content-type': 'application/json', ...getCorsHeaders(req) } })
+            return new Response(`Failed to send email: ${txt || resendRes.statusText}`, { status: 500, headers: getCorsHeaders(req) })
           }
           emailSent = true
-        } catch (emailErr: any) {
-          console.error('Failed to send email:', emailErr)
-          return new Response(JSON.stringify({
-            ok: false,
-            user_id: userId,
-            email,
-            error: `Failed to send email: ${emailErr?.message || 'Unknown error'}. User created but email not sent.`
-          }), { status: 500, headers: { 'content-type': 'application/json', ...getCorsHeaders(req) } })
         }
 
         return new Response(JSON.stringify({
           ok: true,
-          user_id: userId,
+          user_id: userRow.id,
           email,
-          message: 'User created successfully. Password setup email sent.'
+          type: linkType,
+          action_link: actionLink,
+          redirect_url: redirectTo || null,
+          email_sent: emailSent
         }), { status: 200, headers: { 'content-type': 'application/json', ...getCorsHeaders(req) } })
       } catch (err: any) {
-        return new Response(err?.message || 'Error creating user', { status: 500, headers: getCorsHeaders(req) })
+        return new Response(err?.message || 'Error generating magic link', { status: 500, headers: getCorsHeaders(req) })
       }
     }
 
@@ -2831,8 +3126,14 @@ serve(async (req) => {
         const jwtRegex = /^[A-Za-z0-9-_]+\.[A-Za-z0-9-_]+\.[A-Za-z0-9-_]+$/
         if (!jwtRegex.test(key)) return new Response('Invalid key format', { status: 400, headers: getCorsHeaders(req) })
 
-        // Encrypt with base64 (same scheme as supabase-manager)
-        const enc = btoa(key)
+        // Use pgcrypto encryption via RPC (not base64!)
+        let enc: string | null
+        try {
+          enc = await encryptKeyWithRpc(supabase, key)
+        } catch (encErr: any) {
+          return new Response(`Encryption failed: ${encErr.message}`, { status: 500, headers: getCorsHeaders(req) })
+        }
+        
         const { error } = await supabase
           .from('saas_users')
           .update({ supabase_url: url, supabase_key_encrypted: enc, updated_at: new Date().toISOString() })
@@ -3797,10 +4098,15 @@ serve(async (req) => {
     // ===== Get user tokens (admin-only)
     if (action === 'user_tokens' && req.method === 'GET') {
       try {
-        const userId = url.searchParams.get('user_id') || ''
+        const userId = (url.searchParams.get('user_id') || '').trim()
         if (!userId) return new Response('Missing user_id', { status: 400, headers: getCorsHeaders(req) })
+        const purchasedFromRaw = (url.searchParams.get('purchased_at_from') || '').trim()
+        const purchasedToRaw = (url.searchParams.get('purchased_at_to') || '').trim()
+        const purchasedOnRaw = (url.searchParams.get('purchased_on') || '').trim()
+        const statusFilter = (url.searchParams.get('status') || '').trim()
+        const gatewayFilter = (url.searchParams.get('gateway') || '').trim()
 
-        const { data, error } = await supabase
+        let query = supabase
           .from('saas_plan_tokens')
           .select(`
             id,
@@ -3817,8 +4123,43 @@ serve(async (req) => {
             saas_organizations!saas_plan_tokens_applied_organization_id_fkey(id, name, slug)
           `)
           .eq('owner_user_id', userId)
-          .order('created_at', { ascending: false })
 
+        if (statusFilter) {
+          query = query.eq('status', statusFilter)
+        }
+
+        if (gatewayFilter) {
+          query = query.eq('gateway', gatewayFilter)
+        }
+
+        if (purchasedOnRaw) {
+          const onDate = new Date(purchasedOnRaw)
+          if (Number.isNaN(onDate.getTime())) {
+            return new Response('Invalid purchased_on', { status: 400, headers: getCorsHeaders(req) })
+          }
+          const start = new Date(Date.UTC(onDate.getUTCFullYear(), onDate.getUTCMonth(), onDate.getUTCDate(), 0, 0, 0))
+          const end = new Date(start.getTime() + 24 * 3600 * 1000 - 1)
+          query = query
+            .gte('purchased_at', start.toISOString())
+            .lte('purchased_at', end.toISOString())
+        } else {
+          if (purchasedFromRaw) {
+            const fromDate = new Date(purchasedFromRaw)
+            if (Number.isNaN(fromDate.getTime())) {
+              return new Response('Invalid purchased_at_from', { status: 400, headers: getCorsHeaders(req) })
+            }
+            query = query.gte('purchased_at', fromDate.toISOString())
+          }
+          if (purchasedToRaw) {
+            const toDate = new Date(purchasedToRaw)
+            if (Number.isNaN(toDate.getTime())) {
+              return new Response('Invalid purchased_at_to', { status: 400, headers: getCorsHeaders(req) })
+            }
+            query = query.lte('purchased_at', toDate.toISOString())
+          }
+        }
+
+        const { data, error } = await query.order('created_at', { ascending: false })
         if (error) return new Response(error.message, { status: 400, headers: getCorsHeaders(req) })
 
         const tokens = (data || []).map((t: any) => ({
@@ -4443,18 +4784,26 @@ serve(async (req) => {
     }
 
     // ===== Get user Supabase connections (admin-only)
+    // 🔒 SECURITY: Uses decrypt_key() to return decrypted values for admin viewing
     if (action === 'user_supabase_connections' && req.method === 'GET') {
       try {
         const userId = url.searchParams.get('user_id') || ''
         if (!userId) return new Response('Missing user_id', { status: 400, headers: getCorsHeaders(req) })
 
-        const { data: connections, error } = await supabase
-          .from('saas_supabases_connections')
-          .select('id, owner_id, supabase_url, anon_key_encrypted, service_role_encrypted, label, project_ref, is_active, last_used_at, created_at, updated_at')
-          .eq('owner_id', userId)
-          .order('updated_at', { ascending: false })
+        // Use RPC to decrypt keys server-side
+        const { data: connections, error } = await supabase.rpc('admin_get_user_connections', { p_user_id: userId })
 
-        if (error) return new Response(error.message, { status: 400, headers: getCorsHeaders(req) })
+        if (error) {
+          // Fallback to raw query if RPC doesn't exist yet
+          const { data: rawConns, error: rawErr } = await supabase
+            .from('saas_supabases_connections')
+            .select('id, owner_id, supabase_url, anon_key_encrypted, service_role_encrypted, label, project_ref, is_active, last_used_at, created_at, updated_at')
+            .eq('owner_id', userId)
+            .order('updated_at', { ascending: false })
+          
+          if (rawErr) return new Response(rawErr.message, { status: 400, headers: getCorsHeaders(req) })
+          return new Response(JSON.stringify({ connections: rawConns || [] }), { status: 200, headers: { 'content-type': 'application/json', ...getCorsHeaders(req) } })
+        }
 
         return new Response(JSON.stringify({ connections: connections || [] }), { status: 200, headers: { 'content-type': 'application/json', ...getCorsHeaders(req) } })
       } catch (err: any) {
@@ -4463,29 +4812,37 @@ serve(async (req) => {
     }
 
     // ===== Get user organizations as owner (admin-only)
+    // 🔒 SECURITY: Uses decrypt_key() to return decrypted values for admin viewing
     if (action === 'user_organizations' && req.method === 'GET') {
       try {
         const userId = url.searchParams.get('user_id') || ''
         if (!userId) return new Response('Missing user_id', { status: 400, headers: getCorsHeaders(req) })
 
-        const { data: orgs, error } = await supabase
-          .from('saas_organizations')
-          .select(`
-            id,
-            name,
-            slug,
-            owner_id,
-            client_org_id,
-            client_supabase_url,
-            client_anon_key_encrypted,
-            client_service_key_encrypted,
-            created_at,
-            updated_at
-          `)
-          .eq('owner_id', userId)
-          .order('created_at', { ascending: false })
+        // Use RPC to decrypt keys server-side
+        const { data: orgs, error } = await supabase.rpc('admin_get_user_organizations', { p_user_id: userId })
 
-        if (error) return new Response(error.message, { status: 400, headers: getCorsHeaders(req) })
+        if (error) {
+          // Fallback to raw query if RPC doesn't exist yet
+          const { data: rawOrgs, error: rawErr } = await supabase
+            .from('saas_organizations')
+            .select(`
+              id,
+              name,
+              slug,
+              owner_id,
+              client_org_id,
+              client_supabase_url,
+              client_anon_key_encrypted,
+              client_service_key_encrypted,
+              created_at,
+              updated_at
+            `)
+            .eq('owner_id', userId)
+            .order('created_at', { ascending: false })
+          
+          if (rawErr) return new Response(rawErr.message, { status: 400, headers: getCorsHeaders(req) })
+          return new Response(JSON.stringify({ organizations: rawOrgs || [] }), { status: 200, headers: { 'content-type': 'application/json', ...getCorsHeaders(req) } })
+        }
 
         return new Response(JSON.stringify({ organizations: orgs || [] }), { status: 200, headers: { 'content-type': 'application/json', ...getCorsHeaders(req) } })
       } catch (err: any) {
@@ -4511,11 +4868,12 @@ serve(async (req) => {
 
         if (supabaseUrl) updateData.supabase_url = supabaseUrl
         if (anonKey) {
-          // Encrypt and base64 encode
-          updateData.anon_key_encrypted = btoa(anonKey)
+          // 🔒 SECURITY: Pass plain text - the database trigger will encrypt with pgcrypto
+          updateData.anon_key_encrypted = anonKey
         }
         if (serviceKey) {
-          updateData.service_role_encrypted = btoa(serviceKey)
+          // 🔒 SECURITY: Pass plain text - the database trigger will encrypt with pgcrypto
+          updateData.service_role_encrypted = serviceKey
         }
         if (label !== undefined) updateData.label = label || null
 
@@ -4548,11 +4906,17 @@ serve(async (req) => {
         }
 
         if (supabaseUrl) updateData.client_supabase_url = supabaseUrl
-        if (anonKey) {
-          updateData.client_anon_key_encrypted = btoa(anonKey)
-        }
-        if (serviceKey) {
-          updateData.client_service_key_encrypted = btoa(serviceKey)
+        
+        // Use pgcrypto encryption via RPC (not base64!)
+        try {
+          if (anonKey) {
+            updateData.client_anon_key_encrypted = await encryptKeyWithRpc(supabase, anonKey)
+          }
+          if (serviceKey) {
+            updateData.client_service_key_encrypted = await encryptKeyWithRpc(supabase, serviceKey)
+          }
+        } catch (encErr: any) {
+          return new Response(`Encryption failed: ${encErr.message}`, { status: 500, headers: getCorsHeaders(req) })
         }
 
         const { error: updateErr } = await supabase

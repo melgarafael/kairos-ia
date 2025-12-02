@@ -42,7 +42,7 @@ const FEATURE_FLAG_ENABLED =
   (process.env.FEATURE_IA_CONSOLE_V2 ?? process.env.NEXT_PUBLIC_FEATURE_IA_CONSOLE_V2) === "true";
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-const OPENAI_RESPONSES_MODEL = process.env.OPENAI_RESPONSES_MODEL ?? "gpt-4o-mini";
+const OPENAI_RESPONSES_MODEL = process.env.OPENAI_RESPONSES_MODEL ?? "gpt-5.1";
 
 const OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses";
 const OPENAI_CONVERSATIONS_URL = "https://api.openai.com/v1/conversations";
