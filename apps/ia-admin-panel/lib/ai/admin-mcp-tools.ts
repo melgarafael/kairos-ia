@@ -28,6 +28,8 @@ interface ToolProperty {
   enum?: string[];
   default?: unknown;
   items?: ToolProperty;
+  properties?: Record<string, ToolProperty>;
+  required?: string[];
 }
 
 // Plan IDs - Used by the agent to issue tokens
