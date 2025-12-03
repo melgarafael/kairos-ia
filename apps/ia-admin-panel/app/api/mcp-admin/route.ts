@@ -491,7 +491,7 @@ async function executeTool(name: string, args: Record<string, unknown>): Promise
       return JSON.stringify({ 
         success: true, 
         message: `${quantity} token(s) emitido(s) com sucesso.`,
-        ...res
+        ...(res as Record<string, unknown>)
       });
     }
 
@@ -590,7 +590,7 @@ async function executeTool(name: string, args: Record<string, unknown>): Promise
         confirm_text: confirmText
       }, 'POST');
 
-      return JSON.stringify({ success: true, message: 'Organização deletada com sucesso.', ...res });
+      return JSON.stringify({ success: true, message: 'Organização deletada com sucesso.', ...(res as Record<string, unknown>) });
     }
 
     if (name === 'admin_bulk_delete_organizations') {
