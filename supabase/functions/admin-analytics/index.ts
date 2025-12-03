@@ -1431,8 +1431,16 @@ serve(async (req) => {
         const validDays = Math.max(1, Math.min(3650, Number(body?.valid_days || 30)))
 
         // Get the admin user ID who is issuing the tokens
-        const adminUserId = userData?.user?.id || null
-        if (!adminUserId) {
+        // For service calls (x-admin-secret), use issuer_user_id from body if provided
+        // For authenticated calls, use the user from the session
+        const issuerFromBody = (body?.issuer_user_id as string || '').trim()
+        const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+        const adminUserId = (issuerFromBody && uuidRegex.test(issuerFromBody)) 
+          ? issuerFromBody 
+          : (isServiceCall ? null : userData?.user?.id || null)
+        
+        // For service calls without valid issuer_user_id, allow but set to null
+        if (!isServiceCall && !adminUserId) {
           return new Response('Admin authentication required', { status: 401, headers: getCorsHeaders(req) })
         }
 
