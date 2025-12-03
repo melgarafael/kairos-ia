@@ -155,7 +155,7 @@ export function ToolExecutionCard({ tool, defaultExpanded = false }: ToolExecuti
           >
             <div className="px-3 pb-3 space-y-3">
               {/* Arguments */}
-              {tool.arguments && Object.keys(tool.arguments).length > 0 ? (
+              {Object.keys(tool.arguments ?? {}).length > 0 ? (
                 <div>
                   <p className="text-xs font-medium text-muted-foreground/80 mb-1">
                     Argumentos
@@ -167,7 +167,7 @@ export function ToolExecutionCard({ tool, defaultExpanded = false }: ToolExecuti
               ) : null}
 
               {/* Result */}
-              {tool.status === "success" && tool.result && (
+              {tool.status === "success" && tool.result !== undefined && tool.result !== null ? (
                 <div>
                   <p className="text-xs font-medium text-emerald-400/80 mb-1">
                     Resultado
@@ -178,10 +178,10 @@ export function ToolExecutionCard({ tool, defaultExpanded = false }: ToolExecuti
                       : JSON.stringify(tool.result, null, 2)}
                   </pre>
                 </div>
-              )}
+              ) : null}
 
               {/* Error */}
-              {tool.status === "error" && tool.error && (
+              {tool.status === "error" && tool.error ? (
                 <div>
                   <p className="text-xs font-medium text-red-400/80 mb-1">
                     Erro
@@ -190,7 +190,7 @@ export function ToolExecutionCard({ tool, defaultExpanded = false }: ToolExecuti
                     {tool.error}
                   </pre>
                 </div>
-              )}
+              ) : null}
             </div>
           </motion.div>
         )}
