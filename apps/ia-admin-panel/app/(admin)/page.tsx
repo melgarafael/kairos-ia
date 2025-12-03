@@ -9,7 +9,7 @@ const pillars = [
     title: "Status em tempo real",
     description: "Conexões Supabase, tokens ativos e filas MCP.",
     icon: <ChartLine className="text-chart-1" />,
-    href: "/admin"
+    href: "/status"
   },
   {
     title: "IA como copiloto",

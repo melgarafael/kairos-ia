@@ -8,7 +8,6 @@ import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/ui/cn";
 import {
   LogOut,
-  MessageSquare,
   Shield,
   Sparkles,
   ChevronLeft,
@@ -17,7 +16,8 @@ import {
   BrainCircuit,
   Activity,
   Receipt,
-  GraduationCap
+  GraduationCap,
+  BarChart3
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
@@ -86,10 +86,10 @@ export function Sidebar({ user }: SidebarProps) {
             collapsed={collapsed}
           />
           <SidebarLink
-            href="/admin/chat"
-            label="IA Console"
-            icon={<MessageSquare size={20} />}
-            active={pathname === "/admin/chat"}
+            href="/status"
+            label="Status"
+            icon={<BarChart3 size={20} />}
+            active={pathname === "/status"}
             collapsed={collapsed}
           />
           {showIaConsoleV2 && (
@@ -104,7 +104,7 @@ export function Sidebar({ user }: SidebarProps) {
           {showIaConsoleV3 && (
             <SidebarLink
               href="/ia-console/v3"
-              label="IA Console V3"
+              label="IA TomikOS"
               icon={<BrainCircuit size={20} />}
               active={pathname === "/ia-console/v3"}
               collapsed={collapsed}
