@@ -271,7 +271,17 @@ async function executeToolDirectly(
     }
 
     if (toolName === 'admin_issue_tokens') {
-      if (!UUID_REGEX.test(String(args.user_id))) throw new Error("user_id inválido");
+      const userId = String(args.user_id || '').trim();
+      const email = String(args.email || '').trim().toLowerCase();
+      
+      // Aceita user_id OU email (um dos dois é obrigatório)
+      const hasUserId = UUID_REGEX.test(userId);
+      const hasEmail = email.includes('@');
+      
+      if (!hasUserId && !hasEmail) {
+        throw new Error("Forneça user_id (UUID) ou email válido");
+      }
+      
       if (!UUID_REGEX.test(String(args.plan_id))) throw new Error("plan_id inválido");
 
       let issuer = String(args.issuer_user_id || '');
@@ -283,8 +293,10 @@ async function executeToolDirectly(
       const validDays = Math.max(1, Number(args.valid_days || 30));
       const isFrozen = Boolean(args.is_frozen);
 
+      // Envia user_id e/ou email - o backend resolve
       const res = await callAdminAnalytics('issue_tokens', {
-        owner_user_id: args.user_id,
+        ...(hasUserId ? { user_id: userId } : {}),
+        ...(hasEmail ? { email } : {}),
         plan_id: args.plan_id,
         quantity,
         valid_days: validDays,
@@ -309,7 +321,7 @@ async function executeToolDirectly(
         try {
           const userId = await resolveUserId(undefined, item.email);
           await callAdminAnalytics('issue_tokens', {
-            owner_user_id: userId,
+            user_id: userId,
             plan_id: item.plan_id,
             quantity: item.quantity || 1,
             valid_days: item.valid_days || 30,

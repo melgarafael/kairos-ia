@@ -218,18 +218,19 @@ const TOOLS = [
   },
   {
     name: "admin_issue_tokens",
-    description: "Emite novos tokens de licença.",
+    description: "Emite novos tokens de licença. Aceita user_id OU email.",
     inputSchema: {
       type: "object",
       properties: {
-        user_id: { type: "string" },
+        user_id: { type: "string", description: "UUID do usuário (opcional se email fornecido)" },
+        email: { type: "string", description: "Email do usuário (alternativa ao user_id)" },
         plan_id: { type: "string" },
         quantity: { type: "number" },
         valid_days: { type: "number" },
         is_frozen: { type: "boolean" },
         issuer_user_id: { type: "string" }
       },
-      required: ["user_id", "plan_id", "issuer_user_id"]
+      required: ["plan_id"]
     }
   },
   {
@@ -466,7 +467,17 @@ async function executeTool(name: string, args: Record<string, unknown>): Promise
     }
 
     if (name === 'admin_issue_tokens') {
-      if (!UUID_REGEX.test(String(args.user_id))) throw new Error("user_id inválido");
+      const userId = String(args.user_id || '').trim();
+      const email = String(args.email || '').trim().toLowerCase();
+      
+      // Aceita user_id OU email (um dos dois é obrigatório)
+      const hasUserId = UUID_REGEX.test(userId);
+      const hasEmail = email.includes('@');
+      
+      if (!hasUserId && !hasEmail) {
+        throw new Error("Forneça user_id (UUID) ou email válido");
+      }
+      
       if (!UUID_REGEX.test(String(args.plan_id))) throw new Error("plan_id inválido");
 
       let issuer = String(args.issuer_user_id || '');
@@ -480,7 +491,8 @@ async function executeTool(name: string, args: Record<string, unknown>): Promise
 
       // Call admin-analytics to issue tokens
       const res = await callAdminAnalytics('issue_tokens', {
-        owner_user_id: args.user_id,
+        ...(hasUserId ? { user_id: userId } : {}),
+        ...(hasEmail ? { email } : {}),
         plan_id: args.plan_id,
         quantity,
         valid_days: validDays,
@@ -505,7 +517,7 @@ async function executeTool(name: string, args: Record<string, unknown>): Promise
         try {
           const userId = await resolveUserId(undefined, item.email);
           await callAdminAnalytics('issue_tokens', {
-            owner_user_id: userId,
+            user_id: userId,
             plan_id: item.plan_id,
             quantity: item.quantity || 1,
             valid_days: item.valid_days || 30,

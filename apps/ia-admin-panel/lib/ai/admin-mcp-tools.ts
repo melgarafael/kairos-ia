@@ -326,13 +326,17 @@ export const ADMIN_MCP_TOOLS: AdminTool[] = [
   {
     type: 'function',
     name: 'admin_issue_tokens',
-    description: 'Emite novos tokens de licença para um usuário. Requer IDs de plano: PRO=d4836a79..., Starter=8b5a1000..., Trial=4663da1a...',
+    description: 'Emite novos tokens de licença para um usuário. Aceita user_id OU email (um dos dois é obrigatório). Planos: PRO=d4836a79..., Starter=8b5a1000..., Trial=4663da1a...',
     parameters: {
       type: 'object',
       properties: {
         user_id: { 
           type: 'string',
-          description: 'UUID do usuário que receberá os tokens'
+          description: 'UUID do usuário que receberá os tokens (se não tiver, use email)'
+        },
+        email: {
+          type: 'string',
+          description: 'Email do usuário (alternativa ao user_id)'
         },
         plan_id: { 
           type: 'string',
@@ -358,7 +362,7 @@ export const ADMIN_MCP_TOOLS: AdminTool[] = [
           description: 'UUID do admin que está emitindo (você)' 
         }
       },
-      required: ['user_id', 'plan_id', 'issuer_user_id']
+      required: ['plan_id']
     }
   },
   {
