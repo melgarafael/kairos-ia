@@ -2890,6 +2890,80 @@ serve(async (req) => {
       }
     }
 
+    // ===== Update user password (admin-only) =====
+    // Permite ao admin definir uma nova senha diretamente para um usuário
+    if (action === 'update_user_password' && req.method === 'POST') {
+      try {
+        const body = await req.json().catch(() => ({}))
+        let userId = (body?.user_id as string || '').trim()
+        const email = (body?.email as string || '').trim().toLowerCase()
+        const newPassword = (body?.new_password as string || '').trim()
+        const generateRandom = Boolean(body?.generate_random)
+        const passwordLength = Math.max(12, Math.min(64, Number(body?.password_length || 16)))
+
+        // Resolve user_id from email if not provided
+        if (!userId && email) {
+          const { data: userByEmail } = await supabase
+            .from('saas_users')
+            .select('id')
+            .eq('email', email)
+            .maybeSingle()
+          if (userByEmail?.id) {
+            userId = userByEmail.id
+          }
+        }
+
+        if (!userId) {
+          return new Response('Missing user_id or valid email to identify user', { status: 400, headers: getCorsHeaders(req) })
+        }
+
+        // Determine password
+        let finalPassword: string
+        if (generateRandom) {
+          finalPassword = generateSecurePassword(passwordLength)
+        } else if (newPassword) {
+          if (newPassword.length < 8) {
+            return new Response('Password must be at least 8 characters', { status: 400, headers: getCorsHeaders(req) })
+          }
+          finalPassword = newPassword
+        } else {
+          return new Response('Either new_password or generate_random=true is required', { status: 400, headers: getCorsHeaders(req) })
+        }
+
+        // Update password via Supabase Admin API
+        const { data: updatedUser, error: updateErr } = await supabase.auth.admin.updateUserById(userId, { 
+          password: finalPassword,
+          email_confirm: true // Ensure email is confirmed after password update
+        })
+
+        if (updateErr) {
+          return new Response(updateErr.message, { status: 400, headers: getCorsHeaders(req) })
+        }
+
+        // Get user email for response
+        const userEmail = updatedUser?.user?.email || email
+
+        const response: any = {
+          ok: true,
+          user_id: userId,
+          email: userEmail,
+          password_updated: true,
+          message: generateRandom 
+            ? 'Password updated with generated password. Share securely with the user.'
+            : 'Password updated successfully.'
+        }
+
+        // Only include generated password in response if it was auto-generated
+        if (generateRandom) {
+          response.generated_password = finalPassword
+        }
+
+        return new Response(JSON.stringify(response), { status: 200, headers: { 'content-type': 'application/json', ...getCorsHeaders(req) } })
+      } catch (err: any) {
+        return new Response(err?.message || 'Error updating user password', { status: 500, headers: getCorsHeaders(req) })
+      }
+    }
+
     if (action === 'mirror_org_self' && req.method === 'POST') {
       // Limited self-service: current user can mirror their own orgs
       try {
@@ -3836,6 +3910,8 @@ serve(async (req) => {
         const pageSize = Math.min(100, Math.max(1, Number(url.searchParams.get('page_size') || '20')))
         const search = (url.searchParams.get('search') || '').trim()
         const statusFilter = (url.searchParams.get('status') || '').trim()
+        const planIdFilter = (url.searchParams.get('plan_id') || '').trim()
+        const planSlugFilter = (url.searchParams.get('plan_slug') || '').trim().toLowerCase()
         const orderBy = (url.searchParams.get('order_by') || 'created_at').toLowerCase()
         const orderDir = ((url.searchParams.get('order_dir') || 'desc').toLowerCase() === 'desc') ? 'desc' : 'asc'
 
@@ -3863,6 +3939,26 @@ serve(async (req) => {
         // Apply filters
         if (statusFilter) {
           query = query.eq('status', statusFilter)
+        }
+
+        // Apply plan_id filter (direct UUID match)
+        if (planIdFilter) {
+          query = query.eq('plan_id', planIdFilter)
+        }
+        
+        // Apply plan_slug filter (resolve slug to plan_id first)
+        if (planSlugFilter && !planIdFilter) {
+          const { data: planBySlug } = await supabase
+            .from('saas_plans')
+            .select('id')
+            .eq('slug', planSlugFilter)
+            .maybeSingle()
+          if (planBySlug?.id) {
+            query = query.eq('plan_id', planBySlug.id)
+          } else {
+            // Plan slug not found, return empty result
+            return new Response(JSON.stringify({ page, page_size: pageSize, total: 0, tokens: [], message: `Plan with slug '${planSlugFilter}' not found` }), { status: 200, headers: { 'content-type': 'application/json', ...getCorsHeaders(req) } })
+          }
         }
 
         // Apply search (by user email)

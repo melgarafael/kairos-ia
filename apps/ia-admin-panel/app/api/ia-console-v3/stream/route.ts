@@ -209,6 +209,40 @@ async function executeToolDirectly(
       }, 'POST');
     }
 
+    if (toolName === 'admin_update_user_password') {
+      // Permite user_id OU email para identificar o usuário
+      const userId = String(args.user_id || '').trim();
+      const email = String(args.email || '').trim().toLowerCase();
+      const newPassword = String(args.new_password || '').trim();
+      const generateRandom = Boolean(args.generate_random);
+      const passwordLength = args.password_length || 16;
+
+      // Valida que pelo menos um identificador foi fornecido
+      const hasUserId = UUID_REGEX.test(userId);
+      const hasEmail = email.includes('@');
+      
+      if (!hasUserId && !hasEmail) {
+        throw new Error("Forneça user_id (UUID) ou email válido para identificar o usuário");
+      }
+
+      // Valida que uma forma de senha foi fornecida
+      if (!generateRandom && !newPassword) {
+        throw new Error("Forneça new_password ou defina generate_random=true");
+      }
+
+      if (!generateRandom && newPassword.length < 8) {
+        throw new Error("A senha deve ter no mínimo 8 caracteres");
+      }
+
+      return await callAdminAnalytics('update_user_password', {
+        user_id: hasUserId ? userId : undefined,
+        email: hasEmail ? email : undefined,
+        new_password: newPassword || undefined,
+        generate_random: generateRandom,
+        password_length: passwordLength
+      }, 'POST');
+    }
+
     if (toolName === 'admin_get_user_connections') {
       return await callAdminAnalytics('user_supabase_connections', { user_id: args.user_id }, 'GET');
     }
@@ -267,7 +301,14 @@ async function executeToolDirectly(
     // TOKENS
     // ═══════════════════════════════════════════════════════════════════════════
     if (toolName === 'admin_list_tokens') {
-      return await callAdminAnalytics('list_tokens', { search: args.search, status: args.status }, 'GET');
+      return await callAdminAnalytics('list_tokens', { 
+        search: args.search, 
+        status: args.status,
+        plan_id: args.plan_id,
+        plan_slug: args.plan_slug,
+        page: args.page,
+        page_size: args.page_size
+      }, 'GET');
     }
 
     if (toolName === 'admin_issue_tokens') {

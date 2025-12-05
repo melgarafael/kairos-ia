@@ -154,6 +154,37 @@ export const ADMIN_MCP_TOOLS: AdminTool[] = [
   },
   {
     type: 'function',
+    name: 'admin_update_user_password',
+    description: 'Atualiza/redefine a senha de um usuário diretamente. Pode definir uma senha específica ou gerar uma senha aleatória segura. REQUER CONFIRMAÇÃO antes de executar.',
+    parameters: {
+      type: 'object',
+      properties: {
+        user_id: { 
+          type: 'string',
+          description: 'UUID do usuário (obrigatório se não informar email)'
+        },
+        email: { 
+          type: 'string',
+          description: 'Email do usuário (alternativa ao user_id)'
+        },
+        new_password: { 
+          type: 'string',
+          description: 'Nova senha (mínimo 8 caracteres). Obrigatório se generate_random=false.'
+        },
+        generate_random: { 
+          type: 'boolean',
+          description: 'Se true, gera uma senha aleatória segura (retornada na resposta)'
+        },
+        password_length: { 
+          type: 'number',
+          default: 16,
+          description: 'Comprimento da senha aleatória (12-64, default: 16). Usado apenas com generate_random=true.'
+        }
+      }
+    }
+  },
+  {
+    type: 'function',
     name: 'admin_get_user_connections',
     description: 'Lista as conexões Supabase configuradas para um usuário (URL, Keys). Útil para debug de conexão.',
     parameters: {
@@ -308,7 +339,7 @@ export const ADMIN_MCP_TOOLS: AdminTool[] = [
   {
     type: 'function',
     name: 'admin_list_tokens',
-    description: 'Lista tokens de licença do sistema. Permite filtrar por email do dono e status.',
+    description: 'Lista tokens de licença do sistema. Permite filtrar por email do dono, status e plano. Use plan_id para PRO=d4836a79-186f-4905-bfac-77ec52fa1dde ou plan_slug para filtrar por nome do plano (pro, starter, trial).',
     parameters: {
       type: 'object',
       properties: {
@@ -318,7 +349,25 @@ export const ADMIN_MCP_TOOLS: AdminTool[] = [
         },
         status: { 
           type: 'string',
-          description: 'Status do token (available, used, expired)' 
+          description: 'Status do token (available, redeemed, expired, canceled)' 
+        },
+        plan_id: {
+          type: 'string',
+          description: 'UUID do plano para filtrar tokens. PRO=d4836a79-186f-4905-bfac-77ec52fa1dde, Starter=8b5a1000-957c-4eaf-beca-954a78187337, Trial=4663da1a-b552-4127-b1af-4bc30c681682'
+        },
+        plan_slug: {
+          type: 'string',
+          description: 'Slug do plano (pro, starter, trial). Alternativa ao plan_id.'
+        },
+        page: {
+          type: 'number',
+          default: 1,
+          description: 'Página para paginação (default: 1)'
+        },
+        page_size: {
+          type: 'number',
+          default: 20,
+          description: 'Quantidade de resultados por página (max: 100)'
         }
       }
     }
