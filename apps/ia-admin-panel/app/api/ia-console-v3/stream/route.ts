@@ -671,14 +671,24 @@ async function saveMessage(
   metadata?: { tool_calls?: ToolCall[]; attachments?: FileAttachment[] }
 ) {
   try {
-    await supabase.from('admin_chat_messages').insert({
+    console.log(`[ia-console-v3] Saving ${role} message to session ${sessionId}`);
+    const { data, error } = await supabase.from('admin_chat_messages').insert({
       session_id: sessionId,
       role,
       content,
       metadata: metadata || null
-    });
+    }).select('id').single();
+
+    if (error) {
+      console.error('[ia-console-v3] Supabase error saving message:', error);
+      return null;
+    }
+    
+    console.log(`[ia-console-v3] Message saved successfully: ${data?.id}`);
+    return data?.id;
   } catch (err) {
-    console.error('[ia-console-v3] Failed to save message:', err);
+    console.error('[ia-console-v3] Exception saving message:', err);
+    return null;
   }
 }
 
@@ -789,14 +799,23 @@ export async function POST(request: NextRequest) {
 
     // Save user message with attachments
     const lastUserMessage = messages.filter(m => m.role === 'user').slice(-1)[0];
-    if (lastUserMessage) {
-      await saveMessage(
+    if (lastUserMessage && lastUserMessage.content) {
+      console.log(`[ia-console-v3] Preparing to save user message. SessionId: ${sessionId}, Content length: ${lastUserMessage.content.length}`);
+      const savedMessageId = await saveMessage(
         supabase, 
         sessionId, 
         'user', 
         lastUserMessage.content,
         attachments?.length ? { attachments } : undefined
       );
+      if (!savedMessageId) {
+        console.error('[ia-console-v3] Failed to save user message - no ID returned');
+      }
+    } else {
+      console.warn('[ia-console-v3] No user message to save or content is empty', { 
+        hasLastUserMessage: !!lastUserMessage, 
+        contentLength: lastUserMessage?.content?.length 
+      });
     }
 
     // Build conversation input with file content

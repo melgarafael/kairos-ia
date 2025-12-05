@@ -341,14 +341,24 @@ async function saveMessage(
   metadata?: { tool_calls?: ToolCall[] }
 ) {
   try {
-    await supabase.from('admin_chat_messages').insert({
+    console.log(`[ia-console-memberkit] Saving ${role} message to session ${sessionId}`);
+    const { data, error } = await supabase.from('admin_chat_messages').insert({
       session_id: sessionId,
       role,
       content,
       metadata: metadata || null
-    });
+    }).select('id').single();
+
+    if (error) {
+      console.error('[ia-console-memberkit] Supabase error saving message:', error);
+      return null;
+    }
+    
+    console.log(`[ia-console-memberkit] Message saved successfully: ${data?.id}`);
+    return data?.id;
   } catch (err) {
-    console.error('[ia-console-memberkit] Failed to save message:', err);
+    console.error('[ia-console-memberkit] Exception saving message:', err);
+    return null;
   }
 }
 
@@ -467,8 +477,14 @@ export async function POST(request: NextRequest) {
 
     // Save user message
     const lastUserMessage = messages.filter(m => m.role === 'user').slice(-1)[0];
-    if (lastUserMessage) {
-      await saveMessage(supabase, sessionId, 'user', lastUserMessage.content);
+    if (lastUserMessage && lastUserMessage.content) {
+      console.log(`[ia-console-memberkit] Preparing to save user message. SessionId: ${sessionId}, Content length: ${lastUserMessage.content.length}`);
+      const savedMessageId = await saveMessage(supabase, sessionId, 'user', lastUserMessage.content);
+      if (!savedMessageId) {
+        console.error('[ia-console-memberkit] Failed to save user message - no ID returned');
+      }
+    } else {
+      console.warn('[ia-console-memberkit] No user message to save or content is empty');
     }
 
     // Build conversation input
