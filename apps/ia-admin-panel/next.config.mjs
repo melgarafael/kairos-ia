@@ -2,6 +2,18 @@
 const nextConfig = {
   reactStrictMode: true,
   reactCompiler: true,
+  images: {
+    remotePatterns: [
+      {
+        protocol: "https",
+        hostname: "**.bodygraphchart.com",
+      },
+      {
+        protocol: "https",
+        hostname: "api.bodygraphchart.com",
+      },
+    ],
+  },
   headers: async () => [
     {
       source: "/(.*)",

@@ -37,3 +37,39 @@ export function CardDescription({
   );
 }
 
+export function CardHeader({
+  className,
+  ...props
+}: React.HTMLAttributes<HTMLDivElement>) {
+  return (
+    <div
+      className={cn("space-y-1.5", className)}
+      {...props}
+    />
+  );
+}
+
+export function CardContent({
+  className,
+  ...props
+}: React.HTMLAttributes<HTMLDivElement>) {
+  return (
+    <div
+      className={cn("mt-2", className)}
+      {...props}
+    />
+  );
+}
+
+export function CardFooter({
+  className,
+  ...props
+}: React.HTMLAttributes<HTMLDivElement>) {
+  return (
+    <div
+      className={cn("pt-4", className)}
+      {...props}
+    />
+  );
+}
+

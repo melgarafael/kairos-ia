@@ -2,17 +2,17 @@ import { type NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 import { supabaseConfig } from "@/lib/supabase/config";
 
-const protectedPaths = [/^\/admin/, /^\/api\/ai/];
+const protectedPaths = [/^\/admin/, /^\/app/, /^\/meu-design/, /^\/diario/, /^\/ia/, /^\/onboarding/, /^\/api\/ai/, /^\/api\/human-design/];
 
 export async function middleware(req: NextRequest) {
   const res = NextResponse.next();
-  
+
   const supabase = createServerClient(supabaseConfig.url, supabaseConfig.anonKey, {
     cookies: {
       getAll() {
         return req.cookies.getAll().map((cookie) => ({
           name: cookie.name,
-          value: cookie.value,
+          value: cookie.value
         }));
       },
       setAll(cookiesToSet) {
@@ -20,13 +20,11 @@ export async function middleware(req: NextRequest) {
           req.cookies.set(name, value);
           res.cookies.set(name, value, options);
         });
-      },
-    },
+      }
+    }
   });
 
-  const isProtected = protectedPaths.some((regex) =>
-    regex.test(req.nextUrl.pathname)
-  );
+  const isProtected = protectedPaths.some((regex) => regex.test(req.nextUrl.pathname));
 
   if (!isProtected) return res;
 
@@ -40,21 +38,10 @@ export async function middleware(req: NextRequest) {
     return NextResponse.redirect(redirectUrl);
   }
 
-  const role =
-    (session.user.user_metadata?.role as string | undefined) ??
-    session.user.app_metadata?.role;
-
-  if (!role || !["staff", "founder", "admin"].includes(role)) {
-    const redirectUrl = req.nextUrl.clone();
-    redirectUrl.pathname = "/login";
-    redirectUrl.searchParams.set("reason", "not_authorized");
-    return NextResponse.redirect(redirectUrl);
-  }
-
   return res;
 }
 
 export const config = {
-  matcher: ["/admin/:path*", "/api/ai/:path*"]
+  matcher: ["/admin/:path*", "/app/:path*", "/meu-design/:path*", "/diario/:path*", "/ia/:path*", "/onboarding/:path*", "/api/ai/:path*", "/api/human-design/:path*"]
 };
 

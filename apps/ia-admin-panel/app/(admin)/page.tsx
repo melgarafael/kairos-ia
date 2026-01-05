@@ -1,73 +1,118 @@
+import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/auth/get-session";
-import { Card, CardDescription, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import Link from "next/link";
-import { ChartLine, Cpu, ShieldCheck } from "lucide-react";
+import { listAiMemories } from "@/lib/kairos/ai-memories";
+import { listDailyLogs } from "@/lib/kairos/daily-logs";
+import { getHumanDesignProfile } from "@/lib/kairos/human-design";
+import { 
+  MorningCard, 
+  QuickActions, 
+  StrategyReminder, 
+  RecentActivity 
+} from "@/components/dashboard";
 
-const pillars = [
-  {
-    title: "Status em tempo real",
-    description: "Conexões Supabase, tokens ativos e filas MCP.",
-    icon: <ChartLine className="text-chart-1" />,
-    href: "/status"
-  },
-  {
-    title: "IA como copiloto",
-    description: "Chat GPT-5.1 + MCP para executar ações críticas.",
-    icon: <Cpu className="text-chart-2" />,
-    href: "/admin/chat"
-  },
-  {
-    title: "Segurança total",
-    description: "Auditoria, rate limit e RLS ativados por padrão.",
-    icon: <ShieldCheck className="text-chart-3" />,
-    href: "/admin/security"
-  }
-];
+/**
+ * Dashboard Principal — "Acordar Digital"
+ * 
+ * Filosofia Jobs:
+ * - Primeiros 10 segundos: faz alguém dizer "uau"
+ * - Uma decisão clara substitui 10 configurações
+ * - Estados vazios que ensinam
+ * - Mobile-first
+ * 
+ * Human Design:
+ * - Cada tipo acorda de forma diferente
+ * - Estratégia + Autoridade como núcleo
+ * - Dashboard personalizado por design
+ */
 
-export default async function AdminHome() {
+export default async function DashboardPage() {
   const user = await getCurrentUser();
+  const userId = user?.id;
+
+  if (!userId) {
+    redirect("/login");
+  }
+
+  // Fetch all data in parallel
+  const [profile, memories, logs] = await Promise.all([
+    getHumanDesignProfile(userId),
+    listAiMemories(userId, { limit: 3 }),
+    listDailyLogs(userId, { limit: 3 })
+  ]);
+
+  // Redirect to onboarding if no Human Design profile
+  if (!profile || !profile.tipo) {
+    redirect("/onboarding");
+  }
+
+  // Get user name (fallback to email prefix)
+  const userName = user?.user_metadata?.name 
+    || user?.user_metadata?.full_name
+    || user?.email?.split("@")[0];
+
+  // Check if user has logged today
+  const today = new Date().toISOString().split("T")[0];
+  const hasLoggedToday = logs.some(log => 
+    (log.data ?? log.created_at.split("T")[0]) === today
+  );
 
   return (
-    <div className="space-y-10">
-      <section className="space-y-4">
-        <p className="text-sm uppercase tracking-[0.4em] text-muted-foreground">
-          Hoje
-        </p>
-        <h1 className="text-4xl font-semibold">
-          Bem-vindo(a), {user?.user_metadata?.name ?? user?.email}
-        </h1>
-        <p className="text-lg text-muted-foreground max-w-2xl">
-          Este é o cockpit interno do TomikOS. Controle usuários, planos e tokens em poucos cliques,
-          com a IA tomando as ações por você.
-        </p>
-        <div className="flex gap-3">
-          <Button asChild>
-            <Link href="/admin/chat">Abrir IA Command Console</Link>
-          </Button>
-          <Button variant="ghost" asChild>
-            <Link href="/admin/security">Ver auditoria</Link>
-          </Button>
-        </div>
-      </section>
+    <div className="min-h-[calc(100vh-4rem)] flex flex-col">
+      {/* 
+        Layout Mobile-First:
+        - Stack vertical em mobile
+        - Grid em desktop
+        - Generoso em espaçamento
+      */}
+      <div className="flex-1 space-y-6 md:space-y-8 pb-safe">
+        {/* Hero: Morning Card — O primeiro "uau" */}
+        <MorningCard
+          tipo={profile.tipo}
+          userName={userName}
+        />
 
-      <section className="grid gap-6 md:grid-cols-3">
-        {pillars.map((pillar) => (
-          <Card key={pillar.title} className="space-y-4">
-            <div className="flex items-center gap-3">
-              <div className="h-11 w-11 rounded-full bg-white/5 flex items-center justify-center">
-                {pillar.icon}
-              </div>
-              <CardTitle>{pillar.title}</CardTitle>
+        {/* 
+          Grid secundário:
+          - Mobile: stack vertical
+          - Desktop: 2 columns (2/3 + 1/3)
+        */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {/* Coluna principal */}
+          <div className="lg:col-span-2 space-y-6">
+            {/* Quick Actions */}
+            <QuickActions
+              tipo={profile.tipo}
+              hasRecentLog={hasLoggedToday}
+            />
+
+            {/* Recent Activity - Desktop only inline */}
+            <div className="lg:hidden">
+              <RecentActivity
+                logs={logs}
+                memories={memories}
+              />
             </div>
-            <CardDescription>{pillar.description}</CardDescription>
-            <Button variant="ghost" className="px-0" asChild>
-              <Link href={pillar.href}>Explorar →</Link>
-            </Button>
-          </Card>
-        ))}
-      </section>
+          </div>
+
+          {/* Sidebar */}
+          <div className="space-y-6">
+            {/* Strategy Reminder */}
+            <StrategyReminder
+              tipo={profile.tipo}
+              estrategia={profile.estrategia}
+              autoridade={profile.autoridade}
+            />
+
+            {/* Recent Activity - Desktop only */}
+            <div className="hidden lg:block">
+              <RecentActivity
+                logs={logs}
+                memories={memories}
+              />
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
-

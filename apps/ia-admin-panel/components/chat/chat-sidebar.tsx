@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/ui/cn";
 import { Button } from "@/components/ui/button";
-import { Plus, MessageSquare, Clock, User, Shield, Lock } from "lucide-react";
+import { Plus, MessageSquare, Clock } from "lucide-react";
 import { formatDistanceToNow, isToday, isYesterday } from "date-fns";
 import { ptBR } from "date-fns/locale";
 
@@ -12,9 +12,8 @@ export type ChatSession = {
   id: string;
   title: string;
   user_id: string;
-  user_email: string;
-  user_role: "founder" | "admin" | "staff";
   created_at: string;
+  updated_at: string;
 };
 
 interface ChatSidebarProps {
@@ -26,7 +25,6 @@ interface ChatSidebarProps {
 export function ChatSidebar({ currentSessionId, onSelectSession, className }: ChatSidebarProps) {
   const [sessions, setSessions] = useState<ChatSession[]>([]);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<"mine" | "team">("mine");
   const supabase = createSupabaseBrowserClient();
   const [currentUser, setCurrentUser] = useState<any>(null);
 
@@ -42,15 +40,14 @@ export function ChatSidebar({ currentSessionId, onSelectSession, className }: Ch
     if (!currentUser) return;
     fetchSessions();
 
-    // Realtime subscription
     const channel = supabase
-      .channel('admin_chat_sessions_changes')
+      .channel("ai_sessions_changes")
       .on(
-        'postgres_changes',
+        "postgres_changes",
         {
-          event: '*',
-          schema: 'public',
-          table: 'admin_chat_sessions'
+          event: "*",
+          schema: "public",
+          table: "ai_sessions"
         },
         () => {
           fetchSessions();
@@ -61,31 +58,16 @@ export function ChatSidebar({ currentSessionId, onSelectSession, className }: Ch
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [currentUser, activeTab]);
+  }, [currentUser]);
 
   async function fetchSessions() {
     setLoading(true);
     try {
       let query = supabase
-        .from("admin_chat_sessions")
+        .from("ai_sessions")
         .select("*")
-        .order("created_at", { ascending: false });
-
-      if (activeTab === "mine") {
-        query = query.eq("user_id", currentUser.id);
-      } else {
-        // "Team" tab logic handled by RLS, but visually we might want to filter out 'me' if desired.
-        // For now, we show what the RLS allows. 
-        // Requirements:
-        // Founder: See all.
-        // Admin: See all except founder.
-        // Staff: See own.
-        
-        // If I am staff, RLS only returns mine anyway.
-        // If I am Admin/Founder, I see others.
-        // We'll filter OUT current user for "Team" tab to avoid duplication.
-        query = query.neq("user_id", currentUser.id);
-      }
+        .eq("user_id", currentUser.id)
+        .order("updated_at", { ascending: false });
 
       const { data, error } = await query;
       if (error) throw error;
@@ -111,8 +93,6 @@ export function ChatSidebar({ currentSessionId, onSelectSession, className }: Ch
 
   const groups = ["Hoje", "Ontem", "Antigos"].filter(key => groupedSessions[key]?.length > 0);
 
-  const canViewTeam = currentUser?.user_metadata?.role === 'admin' || currentUser?.user_metadata?.role === 'founder';
-
   return (
     <div className={cn("flex flex-col h-full border-r bg-muted/10 w-80", className)}>
       <div className="p-4 space-y-4">
@@ -124,29 +104,6 @@ export function ChatSidebar({ currentSessionId, onSelectSession, className }: Ch
           <Plus className="w-4 h-4" />
           Nova Conversa
         </Button>
-
-        {canViewTeam && (
-          <div className="flex bg-muted p-1 rounded-lg">
-            <button
-              onClick={() => setActiveTab("mine")}
-              className={cn(
-                "flex-1 text-xs font-medium py-1.5 rounded-md transition-all",
-                activeTab === "mine" ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"
-              )}
-            >
-              Minhas
-            </button>
-            <button
-              onClick={() => setActiveTab("team")}
-              className={cn(
-                "flex-1 text-xs font-medium py-1.5 rounded-md transition-all",
-                activeTab === "team" ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"
-              )}
-            >
-              Equipe
-            </button>
-          </div>
-        )}
       </div>
 
       <div className="flex-1 overflow-y-auto px-3 pb-4 space-y-6">
@@ -178,27 +135,12 @@ export function ChatSidebar({ currentSessionId, onSelectSession, className }: Ch
                     )}
                   >
                     <div className="font-medium truncate pr-4 flex items-center gap-2">
-                      {activeTab === 'team' && (
-                        <span className="w-5 h-5 rounded-full bg-primary/10 flex items-center justify-center shrink-0 text-[10px] text-primary">
-                          {session.user_role === 'founder' ? <Lock className="w-3 h-3" /> : <User className="w-3 h-3" />}
-                        </span>
-                      )}
                       <span className="truncate">{session.title}</span>
                     </div>
                     <div className="flex items-center justify-between mt-1.5">
                       <div className="text-xs text-muted-foreground truncate max-w-[140px]">
-                         {activeTab === 'team' ? session.user_email : formatDistanceToNow(new Date(session.created_at), { locale: ptBR, addSuffix: true })}
+                        {formatDistanceToNow(new Date(session.updated_at ?? session.created_at), { locale: ptBR, addSuffix: true })}
                       </div>
-                      {activeTab === 'team' && (
-                         <span className={cn(
-                           "text-[10px] px-1.5 py-0.5 rounded-full border uppercase font-semibold tracking-wider",
-                           session.user_role === 'founder' ? "bg-purple-500/10 text-purple-500 border-purple-500/20" :
-                           session.user_role === 'admin' ? "bg-blue-500/10 text-blue-500 border-blue-500/20" :
-                           "bg-gray-500/10 text-gray-500 border-gray-500/20"
-                         )}>
-                           {session.user_role}
-                         </span>
-                      )}
                     </div>
                   </button>
                 ))}

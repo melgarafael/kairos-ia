@@ -1,15 +1,18 @@
 import { NextResponse } from "next/server";
 import { Redis } from "@upstash/redis";
 import { Ratelimit } from "@upstash/ratelimit";
+import OpenAI from "openai";
 import { requireStaffSession } from "@/lib/auth/guards";
-import { auditAgentEvent, auditMcpToolCallsBatch, type McpToolAuditPayload } from "@/lib/observability/audit";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { getKairosSystemPrompt } from "@/lib/ai/prompts/kairos-system-prompt";
+import { KAIROS_MCP_TOOLS } from "@/lib/ai/kairos-mcp-tools";
+import { executeKairosTool } from "@/lib/ai/kairos-tool-handlers";
+import { createAiMemory } from "@/lib/kairos/ai-memories";
 
 type UiMessage = {
   role: "user" | "assistant";
   content: string;
 };
-
-const N8N_WEBHOOK_URL = "https://automatiklabs.app.n8n.cloud/webhook/mcp-tomik-agent-manager";
 
 const redisUrl = process.env.UPSTASH_REDIS_REST_URL;
 const redisToken = process.env.UPSTASH_REDIS_REST_TOKEN;
@@ -17,20 +20,24 @@ const redisToken = process.env.UPSTASH_REDIS_REST_TOKEN;
 const ratelimit =
   redisUrl && redisToken
     ? new Ratelimit({
-      redis: new Redis({ url: redisUrl, token: redisToken }),
-      limiter: Ratelimit.slidingWindow(5, "60 s")
-    })
+        redis: new Redis({ url: redisUrl, token: redisToken }),
+        limiter: Ratelimit.slidingWindow(10, "60 s"),
+      })
     : null;
 
-import { createSupabaseServerClient } from "@/lib/supabase/server";
-
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY,
+  baseURL: process.env.OPENAI_API_BASE,
+});
 
 export const maxDuration = 180; // 3 minutes
 
+// Maximum tool execution loops to prevent infinite loops
+const MAX_TOOL_LOOPS = 5;
+
 export async function POST(req: Request) {
-  // Generate trace ID for this request
   const traceId = crypto.randomUUID();
-  
+
   let session;
   try {
     session = await requireStaffSession({ redirectOnFail: false });
@@ -48,243 +55,193 @@ export async function POST(req: Request) {
     }
   }
 
-  const body = (await req.json()) as { messages: UiMessage[]; sessionId?: string; attachment?: any };
+  const body = (await req.json()) as { messages: UiMessage[]; sessionId?: string };
   const messages = body?.messages ?? [];
   let sessionId = body.sessionId;
-  const attachment = body.attachment;
 
-  // Prepare database interaction
   const supabase = await createSupabaseServerClient();
 
-  // Ensure session exists or create one
+  // Create or update session
   if (!sessionId) {
-    const role =
-      (session.user.user_metadata?.role as string) ??
-      session.user.app_metadata?.role ??
-      "staff";
-
-    // Create a title from the first user message (truncate to 50 chars)
-    const firstUserMsg = messages.find((m) => m.role === "user")?.content ?? "Nova conversa";
+    const firstUserMsg =
+      messages.find((m) => m.role === "user")?.content ?? "Nova conversa";
     const title = firstUserMsg.slice(0, 50) + (firstUserMsg.length > 50 ? "..." : "");
 
     const { data: newSession, error: sessionError } = await supabase
-      .from("admin_chat_sessions")
+      .from("ai_sessions")
       .insert({
         user_id: session.user.id,
-        user_email: session.user.email,
-        user_role: role,
-        title: title
+        title,
       })
       .select("id")
       .single();
 
-    if (sessionError) {
+    if (sessionError || !newSession) {
       console.error("[ai-command] Error creating session:", sessionError);
-      return NextResponse.json({ error: "Erro ao criar sessão de chat." }, { status: 500 });
+      return NextResponse.json(
+        { error: "Erro ao criar sessão de chat." },
+        { status: 500 }
+      );
     }
     sessionId = newSession.id;
+  } else {
+    await supabase
+      .from("ai_sessions")
+      .update({ updated_at: new Date().toISOString() })
+      .eq("id", sessionId);
   }
 
-  // Get the latest user message to save
+  // Save user message
   const lastUserMessage = [...messages].reverse().find((m) => m.role === "user");
-
-  if (lastUserMessage) {
-    await supabase.from("admin_chat_messages").insert({
+  if (lastUserMessage && sessionId) {
+    await supabase.from("ai_messages").insert({
       session_id: sessionId,
+      user_id: session.user.id,
       role: "user",
-      content: lastUserMessage.content
+      content: lastUserMessage.content,
     });
   }
 
   try {
-    const result = await callN8nWebhook({
-      messages,
-      userId: session.user.id,
-      attachment,
-      sessionId
-    });
+    const systemPrompt = getKairosSystemPrompt();
 
-    // Save assistant response
-    if (sessionId) {
-      await supabase.from("admin_chat_messages").insert({
-        session_id: sessionId,
-        role: "assistant",
-        content: result.reply
+    // Build messages for OpenAI
+    const openaiMessages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
+      { role: "system", content: systemPrompt },
+      ...messages.map((m) => ({
+        role: m.role as "user" | "assistant",
+        content: m.content,
+      })),
+    ];
+
+    // Convert tools to OpenAI format
+    const tools: OpenAI.Chat.Completions.ChatCompletionTool[] = KAIROS_MCP_TOOLS.map(
+      (tool) => ({
+        type: "function" as const,
+        function: {
+          name: tool.name,
+          description: tool.description,
+          parameters: tool.parameters,
+        },
+      })
+    );
+
+    let finalReply = "";
+    let toolLoops = 0;
+
+    // Agentic loop: keep calling model until no more tool calls
+    while (toolLoops < MAX_TOOL_LOOPS) {
+      toolLoops++;
+
+      const completion = await openai.chat.completions.create({
+        model: process.env.OPENAI_MODEL || "gpt-4o-mini",
+        messages: openaiMessages,
+        tools,
+        tool_choice: "auto",
+        temperature: 0.4,
+        max_tokens: 1500,
       });
-      
-      // Update session timestamp
+
+      const choice = completion.choices[0];
+
+      if (!choice) {
+        finalReply = "Não consegui gerar uma resposta agora.";
+        break;
+      }
+
+      const assistantMessage = choice.message;
+
+      // Check if there are tool calls
+      if (assistantMessage.tool_calls && assistantMessage.tool_calls.length > 0) {
+        // Add assistant message with tool calls to history
+        openaiMessages.push({
+          role: "assistant",
+          content: assistantMessage.content || null,
+          tool_calls: assistantMessage.tool_calls,
+        });
+
+        // Execute each tool call
+        for (const toolCall of assistantMessage.tool_calls) {
+          const toolName = toolCall.function.name;
+          let toolArgs: Record<string, unknown> = {};
+
+          try {
+            toolArgs = JSON.parse(toolCall.function.arguments || "{}");
+          } catch {
+            toolArgs = {};
+          }
+
+          console.log(`[ai-command] Executing tool: ${toolName}`, toolArgs);
+
+          // Execute the tool with user_id
+          const result = await executeKairosTool(
+            toolName,
+            toolArgs,
+            session.user.id
+          );
+
+          // Add tool result to messages
+          openaiMessages.push({
+            role: "tool",
+            tool_call_id: toolCall.id,
+            content: JSON.stringify(result),
+          });
+        }
+
+        // Continue the loop to let the model process tool results
+        continue;
+      }
+
+      // No tool calls, we have the final response
+      finalReply = assistantMessage.content?.trim() || "Não consegui gerar uma resposta agora.";
+      break;
+    }
+
+    // If we hit max loops, add a note
+    if (toolLoops >= MAX_TOOL_LOOPS && !finalReply) {
+      finalReply =
+        "Desculpe, precisei processar muitas informações. Tente reformular sua pergunta.";
+    }
+
+    // Save assistant message
+    if (sessionId) {
+      await supabase.from("ai_messages").insert({
+        session_id: sessionId,
+        user_id: session.user.id,
+        role: "assistant",
+        content: finalReply,
+      });
+
       await supabase
-        .from("admin_chat_sessions")
+        .from("ai_sessions")
         .update({ updated_at: new Date().toISOString() })
         .eq("id", sessionId);
     }
 
-    await auditAgentEvent({
-      user_id: session.user.id,
-      event: "ai_command",
-      metadata: {
-        toolLogs: result.toolLogs ?? [],
-        sessionId,
-        traceId
+    // Create a memory of the conversation (summarized)
+    // Only if the conversation seems meaningful (not just greetings)
+    if (
+      finalReply.length > 100 &&
+      lastUserMessage &&
+      lastUserMessage.content.length > 20
+    ) {
+      try {
+        await createAiMemory(session.user.id, {
+          source_type: "chat",
+          source_id: sessionId,
+          content: finalReply.slice(0, 500),
+          tags: ["chat", "resposta-ia"],
+        });
+      } catch (memoryError) {
+        // Don't fail the request if memory creation fails
+        console.warn("[ai-command] Failed to create memory:", memoryError);
       }
-    });
-
-    // Log granular MCP tool calls to admin_mcp_audit table
-    if (result.toolLogs && result.toolLogs.length > 0) {
-      const mcpAuditPayloads: McpToolAuditPayload[] = result.toolLogs.map((log) => ({
-        user_id: session.user.id,
-        session_id: sessionId,
-        tool_name: log.tool || "unknown",
-        arguments: log.args || {},
-        result: typeof log.output === "string" ? { output: log.output } : (log.output || {}),
-        success: !log.error,
-        error: log.error || undefined,
-        source: "api" as const,
-        trace_id: traceId
-      }));
-      
-      auditMcpToolCallsBatch(mcpAuditPayloads).catch(console.error);
     }
 
-    return NextResponse.json({ ...result, sessionId, traceId });
-  } catch (error: any) {
+    return NextResponse.json({ reply: finalReply, sessionId, traceId });
+  } catch (error: unknown) {
     console.error("[ai-command]", error);
-    return NextResponse.json(
-      { error: error?.message ?? "Erro inesperado." },
-      { status: 500 }
-    );
+    const errorMessage = error instanceof Error ? error.message : "Erro inesperado.";
+    return NextResponse.json({ error: errorMessage }, { status: 500 });
   }
 }
-
-async function callN8nWebhook({
-  messages,
-  userId,
-  attachment,
-  sessionId
-}: {
-  messages: UiMessage[];
-  userId: string;
-  attachment?: any;
-  sessionId?: string;
-}) {
-  // Pegar apenas a última mensagem do usuário (a mais recente)
-  const lastUserMessage = [...messages].reverse().find(m => m.role === "user");
-  const userMessage = lastUserMessage?.content || "";
-
-  if (!userMessage) {
-    throw new Error("Nenhuma mensagem do usuário encontrada.");
-  }
-
-  // Limpar o base64 do anexo se existir
-  if (attachment && attachment.content && typeof attachment.content === "string") {
-    // Remove o prefixo data:image/png;base64, ou data:text/csv;base64, etc
-    // Para que o n8n receba apenas o raw base64
-    const base64Data = attachment.content.replace(/^data:([A-Za-z-+/]+);base64,/, "");
-    attachment.content = base64Data;
-  }
-
-  console.log(`[ai-command] Calling n8n webhook with message:`, userMessage);
-
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 180000); // 3 minutes
-
-  try {
-    const response = await fetch(N8N_WEBHOOK_URL, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        message: userMessage,
-        userId,
-        sessionId,
-        conversationHistory: messages.slice(-10), // Enviar últimas 10 mensagens para contexto
-        attachment
-      }),
-      signal: controller.signal
-    });
-
-    if (!response.ok) {
-      if (response.status === 524) {
-        console.error(`[ai-command] n8n webhook timeout (524)`);
-        throw new Error("O agente demorou muito para responder (Timeout). Tente simplificar a solicitação ou tente novamente mais tarde.");
-      }
-      const errorText = await response.text();
-      console.error(`[ai-command] n8n webhook error:`, response.status, errorText);
-      throw new Error(`Erro ao chamar webhook n8n: ${response.status}`);
-    }
-
-    const data = await response.json();
-    console.log(`[ai-command] n8n webhook response:`, JSON.stringify(data, null, 2).substring(0, 500));
-
-    // Processar resposta do n8n
-    // O n8n pode retornar em diferentes formatos, vamos tentar os mais comuns
-    let reply = "";
-    let toolLogs: Array<{
-      tool: string;
-      args: Record<string, any>;
-      output: string | Record<string, any>;
-      error?: string;
-    }> = [];
-
-    // Função auxiliar para extrair texto de uma string que pode ser JSON
-    function extractText(value: any): string {
-      if (typeof value === "string") {
-        // Se for uma string que parece JSON, tenta fazer parse
-        const trimmed = value.trim();
-        if (trimmed.startsWith("{") && trimmed.endsWith("}")) {
-          try {
-            const parsed = JSON.parse(trimmed);
-            // Se parseou, tenta extrair campos comuns
-            if (typeof parsed === "object" && parsed !== null) {
-              return parsed.output || parsed.reply || parsed.response || parsed.message || parsed.text || value;
-            }
-          } catch {
-            // Se não conseguiu fazer parse, retorna a string original
-            return value;
-          }
-        }
-        return value;
-      }
-      return String(value);
-    }
-
-    // Se a resposta for uma string simples
-    if (typeof data === "string") {
-      reply = extractText(data);
-    }
-    // Se for um objeto com 'reply', 'response', 'message', 'text' ou 'output'
-    else if (typeof data === "object" && data !== null) {
-      const possibleReply = data.output || data.reply || data.response || data.message || data.text;
-      
-      if (possibleReply) {
-        reply = extractText(possibleReply);
-      } else {
-        // Se não encontrou nenhum campo conhecido, tenta stringify mas com fallback melhor
-        reply = JSON.stringify(data);
-      }
-      
-      // Se houver toolLogs na resposta
-      if (data.toolLogs && Array.isArray(data.toolLogs)) {
-        toolLogs = data.toolLogs;
-      }
-    }
-    // Fallback
-    else {
-      reply = extractText(String(data));
-    }
-
-    return {
-      reply: reply.trim() || "Não recebi uma resposta válida do agente.",
-      toolLogs
-    };
-  } catch (error: any) {
-    if (error.name === "AbortError") {
-      throw new Error("O agente demorou mais de 3 minutos para responder.");
-    }
-    throw error;
-  } finally {
-    clearTimeout(timeoutId);
-  }
-}
-

@@ -16,7 +16,7 @@ type Message = {
   timestamp: number;
 };
 
-const starterMessage = "O que gostaria de fazer agora?";
+const starterMessage = "Olá! Sou a Kairos, sua mentora de Human Design. 🌟\n\nPosso te ajudar a entender seu design, fazer check-ins diários e propor ações práticas alinhadas com quem você realmente é.\n\nComo posso te ajudar hoje?";
 
 interface ChatPanelProps {
   sessionId: string | null;
@@ -62,7 +62,7 @@ export function ChatPanel({ sessionId, onSessionCreated }: ChatPanelProps) {
 
       setLoading(true);
       const { data, error } = await supabase
-        .from("admin_chat_messages")
+        .from("ai_messages")
         .select("*")
         .eq("session_id", sessionId)
         .order("created_at", { ascending: true });

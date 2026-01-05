@@ -18,10 +18,10 @@ const ibmMono = IBM_Plex_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "TomikOS • IA Admin Panel",
-  description: "Painel interno Jobsiano com IA MCP para o time TomikOS.",
-  applicationName: "TomikOS Admin",
-  metadataBase: new URL("https://admin.tomikos.internal")
+  title: "Kairos IA • Seu espaço de Human Design",
+  description: "Painel pessoal de alinhamento diário guiado pelo seu Human Design. Descubra, registre e converse com sua mentora IA.",
+  applicationName: "Kairos IA",
+  metadataBase: new URL("https://kairos-ia.vercel.app")
 };
 
 export default function RootLayout({

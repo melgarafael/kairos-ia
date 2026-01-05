@@ -4,20 +4,17 @@ import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { User } from "@supabase/supabase-js";
-import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/ui/cn";
 import {
   LogOut,
-  Shield,
   Sparkles,
   ChevronLeft,
   ChevronRight,
   Cpu,
   BrainCircuit,
   Activity,
-  Receipt,
-  GraduationCap,
-  BarChart3
+  Users,
+  UserCog,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
@@ -28,10 +25,6 @@ type SidebarProps = {
 export function Sidebar({ user }: SidebarProps) {
   const [collapsed, setCollapsed] = useState(false);
   const pathname = usePathname();
-  const showIaConsoleV2 = process.env.NEXT_PUBLIC_FEATURE_IA_CONSOLE_V2 === "true";
-  const showIaConsoleV3 = process.env.NEXT_PUBLIC_FEATURE_IA_CONSOLE_V3 === "true";
-  const showIaConsoleVendas = process.env.NEXT_PUBLIC_FEATURE_IA_CONSOLE_VENDAS === "true";
-  const showIaConsoleMemberkit = process.env.NEXT_PUBLIC_FEATURE_IA_CONSOLE_MEMBERKIT === "true";
 
   return (
     <motion.aside
@@ -54,7 +47,7 @@ export function Sidebar({ user }: SidebarProps) {
                 className="flex-1"
               >
                 <h2 className="text-xl font-semibold text-white tracking-tight">
-                  TomikOS
+                  Kairos IA
                 </h2>
               </motion.div>
             )}
@@ -79,67 +72,45 @@ export function Sidebar({ user }: SidebarProps) {
         {/* Navigation - Deferência ao conteúdo */}
         <nav className="flex-1 space-y-1">
           <SidebarLink
-            href="/admin"
-            label="Painel"
+            href="/app"
+            label="Dashboard"
             icon={<Sparkles size={20} />}
-            active={pathname === "/admin"}
+            active={pathname === "/app" || pathname === "/admin"}
             collapsed={collapsed}
           />
           <SidebarLink
-            href="/status"
-            label="Status"
-            icon={<BarChart3 size={20} />}
-            active={pathname === "/status"}
-            collapsed={collapsed}
-          />
-          {showIaConsoleV2 && (
-            <SidebarLink
-              href="/ia-console/v2"
-              label="IA Console V2"
-              icon={<Cpu size={20} />}
-              active={pathname === "/ia-console/v2"}
-              collapsed={collapsed}
-            />
-          )}
-          {showIaConsoleV3 && (
-            <SidebarLink
-              href="/ia-console/v3"
-              label="IA TomikOS"
-              icon={<BrainCircuit size={20} />}
-              active={pathname === "/ia-console/v3"}
-              collapsed={collapsed}
-            />
-          )}
-          {showIaConsoleVendas && (
-            <SidebarLink
-              href="/ia-console/vendas"
-              label="IA Vendas"
-              icon={<Receipt size={20} />}
-              active={pathname === "/ia-console/vendas"}
-              collapsed={collapsed}
-            />
-          )}
-          {showIaConsoleMemberkit && (
-            <SidebarLink
-              href="/ia-console/memberkit"
-              label="IA Acessos"
-              icon={<GraduationCap size={20} />}
-              active={pathname === "/ia-console/memberkit"}
-              collapsed={collapsed}
-            />
-          )}
-          <SidebarLink
-            href="/admin/security"
-            label="Segurança"
-            icon={<Shield size={20} />}
-            active={pathname === "/admin/security"}
+            href="/meu-design"
+            label="Meu design"
+            icon={<BrainCircuit size={20} />}
+            active={pathname.startsWith("/meu-design")}
             collapsed={collapsed}
           />
           <SidebarLink
-            href="/audit"
-            label="Auditoria MCP"
+            href="/meu-contexto"
+            label="Sobre você"
+            icon={<UserCog size={20} />}
+            active={pathname.startsWith("/meu-contexto")}
+            collapsed={collapsed}
+          />
+          <SidebarLink
+            href="/pessoas"
+            label="Pessoas"
+            icon={<Users size={20} />}
+            active={pathname.startsWith("/pessoas")}
+            collapsed={collapsed}
+          />
+          <SidebarLink
+            href="/diario"
+            label="Diário"
             icon={<Activity size={20} />}
-            active={pathname === "/audit"}
+            active={pathname.startsWith("/diario")}
+            collapsed={collapsed}
+          />
+          <SidebarLink
+            href="/ia"
+            label="Mentora Kairos"
+            icon={<Cpu size={20} />}
+            active={pathname.startsWith("/ia")}
             collapsed={collapsed}
           />
         </nav>

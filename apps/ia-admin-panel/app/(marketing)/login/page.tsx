@@ -2,7 +2,7 @@ import { LoginForm } from "@/components/auth/login-form";
 import { Card, CardDescription, CardTitle } from "@/components/ui/card";
 
 export const metadata = {
-  title: "Entrar • TomikOS Admin"
+  title: "Entrar • Kairos IA"
 };
 
 export default function LoginPage() {
@@ -12,13 +12,13 @@ export default function LoginPage() {
       <div className="max-w-xl w-full relative space-y-8">
         <header className="text-center space-y-3">
           <p className="uppercase tracking-[0.3em] text-xs text-muted-foreground">
-            TomikOS Command Center
+            Kairos IA • Espaço pessoal
           </p>
           <h1 className="text-4xl font-semibold text-white">
-            Hoje reinventamos o suporte interno.
+            Entre para alinhar seu dia com seu Design Humano.
           </h1>
           <p className="text-base text-muted-foreground">
-            Acesso exclusivo para o time. O futuro do TomikOS começa aqui.
+            Acesse seu painel, registre seu design e converse com a mentora Kairos.
           </p>
         </header>
 
@@ -26,7 +26,7 @@ export default function LoginPage() {
           <div className="space-y-2">
             <CardTitle>Login seguro</CardTitle>
             <CardDescription>
-              Use seu email institucional. Cada sessão é auditada.
+              Use seu email cadastrado. Toda sessão é protegida e auditável.
             </CardDescription>
           </div>
           <LoginForm />

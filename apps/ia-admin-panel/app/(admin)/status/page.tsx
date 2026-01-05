@@ -1,8 +1,8 @@
 import { StatusDashboard } from "@/components/status";
 
 export const metadata = {
-  title: "Status em tempo real | TomikOS Admin",
-  description: "Monitoramento de conexões Supabase, tokens ativos e filas MCP"
+  title: "Status • Kairos IA",
+  description: "Monitoramento de conexões e status do sistema"
 };
 
 export default function StatusPage() {
