@@ -143,13 +143,14 @@ export default function MeuContextoPage() {
     (field: keyof UserLifeContext, value: unknown) => {
       setContext((prev) => ({ ...prev, [field]: value }));
 
-      startTransition(() => {
-        const timeout = setTimeout(() => {
+      const timeout = setTimeout(() => {
+        startTransition(() => {
           saveContext({ [field]: value });
-        }, AUTO_SAVE_DELAY);
+        });
+      }, AUTO_SAVE_DELAY);
 
-        return () => clearTimeout(timeout);
-      });
+      // Store timeout for cleanup if needed
+      return () => clearTimeout(timeout);
     },
     [saveContext]
   );
