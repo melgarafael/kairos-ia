@@ -92,8 +92,8 @@ export function FullDesignView({ profile, userName, birthInfo }: Props) {
           centros_abertos={profile.centros_abertos || []}
           canais={profile.canais || []}
           portas={profile.portas || []}
-          planetas_personalidade={profile.planetas_personalidade || undefined}
-          planetas_design={profile.planetas_design || undefined}
+          planetas_personalidade={profile.planetas_personalidade as any || undefined}
+          planetas_design={profile.planetas_design as any || undefined}
           showGates={true}
           showChannels={true}
           enableZoom={true}
