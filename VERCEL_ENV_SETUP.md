@@ -16,10 +16,12 @@ Este documento lista **TODAS** as variáveis de ambiente necessárias para o pro
 ### Supabase - Configuração Principal
 
 ```bash
-NEXT_PUBLIC_SUPABASE_URL=https://qckjiolragbvvpqvfhrj.supabase.co
-NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFja2ppb2xyYWdidnZwcXZmaHJqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTQxNDU2ODgsImV4cCI6MjA2OTcyMTY4OH0.FKiZn8iDji4Pkyp2aN-WdN47R-xk0ktLrseTQO0iRAI
-SUPABASE_SERVICE_ROLE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFja2ppb2xyYWdidnZwcXZmaHJqIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1NDE0NTY4OCwiZXhwIjoyMDY5NzIxNjg4fQ.Ykm-ioDUXHDxOq1GvzZRUUGlfiadwl-xGLUZtXfGkyU
+NEXT_PUBLIC_SUPABASE_URL=your_supabase_url_here
+NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key_here
+SUPABASE_SERVICE_ROLE_KEY=your_supabase_service_role_key_here
 ```
+
+**Onde obter**: No dashboard do Supabase → Settings → API
 
 ### OpenAI - API Key
 
@@ -27,14 +29,20 @@ SUPABASE_SERVICE_ROLE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhY
 OPENAI_API_KEY=your_openai_api_key_here
 ```
 
+**⚠️ IMPORTANTE**: 
+- Obtenha sua chave em: https://platform.openai.com/api-keys
+- Use o modelo `gpt-5.1` conforme especificado nas regras do projeto
+
 **⚠️ IMPORTANTE**: Use o modelo `gpt-5.1` conforme especificado nas regras do projeto.
 
 ### Admin Analytics
 
 ```bash
-ADMIN_ANALYTICS_SECRET=0ef5ba44-ff6c-41db-af97-9c67ce8f0471
-MCP_SERVICE_ROLE_JWT=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFja2ppb2xyYWdidnZwcXZmaHJqIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1NDE0NTY4OCwiZXhwIjoyMDY5NzIxNjg4fQ.Ykm-ioDUXHDxOq1GvzZRUUGlfiadwl-xGLUZtXfGkyU
+ADMIN_ANALYTICS_SECRET=your_admin_analytics_secret_here
+MCP_SERVICE_ROLE_JWT=your_mcp_service_role_jwt_here
 ```
+
+**Nota**: Use o mesmo valor do `SUPABASE_SERVICE_ROLE_KEY` para `MCP_SERVICE_ROLE_JWT`
 
 ### Base URL
 
