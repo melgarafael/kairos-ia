@@ -1,0 +1,8 @@
+{
+  "buildCommand": "cd apps/ia-admin-panel && pnpm build",
+  "outputDirectory": "apps/ia-admin-panel/.next",
+  "installCommand": "pnpm install",
+  "framework": "nextjs",
+  "rootDirectory": "apps/ia-admin-panel"
+}
+
