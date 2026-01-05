@@ -156,7 +156,7 @@ function WheelColumn({ items, value, onChange, className }: WheelColumnProps) {
   }, [items, onChange]);
 
   // Debounce scroll end detection
-  const scrollTimeoutRef = useRef<NodeJS.Timeout>();
+  const scrollTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const handleScroll = useCallback(() => {
     setIsDragging(true);
     if (scrollTimeoutRef.current) {
