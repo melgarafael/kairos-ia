@@ -36,13 +36,22 @@ export function AddFriendModal({ open, onClose, onFriendAdded }: AddFriendModalP
       setBirthTime("");
       setBirthLocation("");
       setTimezone("America/Sao_Paulo");
+      setSelectedLocation(null);
       setError(null);
     }
   }, [open]);
 
-  const handleLocationSelect = useCallback((location: { value: string; timezone: string }) => {
-    setBirthLocation(location.value);
-    setTimezone(location.timezone);
+  const [selectedLocation, setSelectedLocation] = useState<{ id: string; name: string; fullName: string; region: string; country: string; timezone: string } | null>(null);
+  
+  const handleLocationChange = useCallback((location: { id: string; name: string; fullName: string; region: string; country: string; timezone: string } | null) => {
+    setSelectedLocation(location);
+    if (location) {
+      setBirthLocation(location.fullName);
+      setTimezone(location.timezone);
+    } else {
+      setBirthLocation("");
+      setTimezone("America/Sao_Paulo");
+    }
   }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -246,8 +255,9 @@ export function AddFriendModal({ open, onClose, onFriendAdded }: AddFriendModalP
                   Local de Nascimento
                 </label>
                 <LocationSearch
-                  onSelect={handleLocationSelect}
-                  initialValue={birthLocation}
+                  value={selectedLocation}
+                  onChange={handleLocationChange}
+                  onTimezoneDetected={setTimezone}
                 />
                 <p className="text-xs text-white/30">
                   Fuso horário: {timezone}
