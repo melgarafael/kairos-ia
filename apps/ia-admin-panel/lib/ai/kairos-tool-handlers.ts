@@ -17,6 +17,7 @@ import {
   getFriendsSummaryForAI,
   type HdFriend,
 } from "@/lib/kairos/friends";
+import type { HdFriend } from "@/lib/kairos/types";
 import {
   getUserLifeContext,
   getUserLifeContextByCategories,
