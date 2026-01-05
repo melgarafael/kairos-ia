@@ -27,6 +27,14 @@ const CENTER_COORDS: Record<CenterName, { x: number; y: number }> = {
   root: { x: 159, y: 611 },
 };
 
+interface BodygraphCanvasProps {
+  data: BodygraphData;
+  showGates?: boolean;
+  showChannels?: boolean;
+  enableZoom?: boolean;
+  className?: string;
+}
+
 export function BodygraphCanvas({
   data,
   showGates = true,
