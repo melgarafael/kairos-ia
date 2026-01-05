@@ -29,11 +29,14 @@ export async function middleware(req: NextRequest) {
 
   if (!isProtected) return res;
 
-  const {
-    data: { session }
-  } = await supabase.auth.getSession();
-
-  if (!session) {
+  // Verifica se há cookies de autenticação do Supabase
+  // O Supabase SSR armazena tokens em cookies com prefixo sb-
+  const hasAuthCookie = req.cookies.getAll().some(
+    (cookie) => cookie.name.startsWith("sb-") && (cookie.name.includes("auth-token") || cookie.name.includes("access-token"))
+  );
+  
+  // Se não houver cookie de autenticação, redireciona para login
+  if (!hasAuthCookie) {
     const redirectUrl = req.nextUrl.clone();
     redirectUrl.pathname = "/login";
     return NextResponse.redirect(redirectUrl);
