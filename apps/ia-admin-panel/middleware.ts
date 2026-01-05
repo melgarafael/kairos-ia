@@ -8,6 +8,7 @@ export async function middleware(req: NextRequest) {
   const res = NextResponse.next();
 
   const supabase = createServerClient(supabaseConfig.url, supabaseConfig.anonKey, {
+    cookieEncoding: "raw",
     cookies: {
       getAll() {
         return req.cookies.getAll().map((cookie) => ({
