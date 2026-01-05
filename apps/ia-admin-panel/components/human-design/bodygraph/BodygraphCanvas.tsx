@@ -46,7 +46,7 @@ export function BodygraphCanvas({
   const [selectedCenter, setSelectedCenter] = useState<CenterName | null>(null);
   const [tooltipPosition, setTooltipPosition] = useState({ x: 0, y: 0 });
   const [cardPosition, setCardPosition] = useState<{ x: number; y: number } | null>(null);
-  const containerRef = useRef<HTMLDivElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null) as React.RefObject<HTMLDivElement>;
 
   // Extract gates logic (keep for debug badge if needed, or remove if not used)
   const extractedGates = useMemo(() => {
